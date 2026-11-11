@@ -291,9 +291,12 @@
         state: directory
         mode: "0755"
 
+    # repodata/ is generated in the destination by the handler, so --delete must
+    # leave it alone; createrepo also touches the top dir, hence --omit-dir-times.
     - name: Publish the mirror under the PXE web root
       ansible.builtin.command:
-        argv: [rsync, -a, --delete, --exclude=.done-*, --itemize-changes, /srv/lab-repo/, "{{ lab_repo_dir }}/"]
+        argv: [rsync, -a, --delete, --exclude=.done-*, --exclude=repodata/, --omit-dir-times,
+               --itemize-changes, /srv/lab-repo/, "{{ lab_repo_dir }}/"]
       register: __repo_sync
       changed_when: __repo_sync.stdout | length > 0
       notify: Build repo metadata
@@ -335,8 +338,10 @@
       changed_when: false
       failed_when: false
 
+    # -e lab_rebuild_v1=true rebuilds v1.0 from the current repo (for example after
+    # an image fix) and promotes it; the old stable is kept as stable-previous.
     - name: Build v1.0 and promote it
-      when: __stable.rc != 0
+      when: __stable.rc != 0 or (lab_rebuild_v1 | default(false) | bool)
       block:
         - name: Build v1.0
           ansible.builtin.include_role:

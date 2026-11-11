@@ -1,2 +1,5 @@
 ---
 ansible_become: true
+# The lab sets a console/GDM password for labadmin, so the Kickstart grants
+# password sudo (NOPASSWD is only for key-only admins).
+ansible_become_password: "{{ lab_admin_password }}"
