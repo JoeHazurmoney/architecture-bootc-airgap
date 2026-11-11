@@ -10,12 +10,14 @@ Checks:
   * every Kickstart parses with pykickstart's RHEL10 grammar, installs the OS
     with exactly one of ostreecontainer/bootc, and has no %packages section
   * nothing is left unrendered ("{{", "{%")
-  * GRUB files have balanced braces and the menu entries we expect
+  * GRUB files have balanced braces and the menu entries we expect; grub.cfg
+    sets its own prefix and never uses test -f on a network path
   * the Kea snippet is valid JSON
 """
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -58,6 +60,10 @@ def check_kickstart(path: Path) -> list[str]:
         errors.append(f"{path}: expected one ostreecontainer/bootc line, found {installers}")
     if "%packages" in commands:
         errors.append(f"{path}: %packages is not allowed in an image-mode install")
+    # A text-mode install makes Anaconda link /etc default.target to multi-user.target,
+    # overriding the image (a workstation would never reach GDM). %post must undo it.
+    if "rm -f /etc/systemd/system/default.target" not in text.split("%post", 1)[-1]:
+        errors.append(f"{path}: %post must remove Anaconda's default.target so the image decides")
     return errors
 
 
@@ -66,6 +72,14 @@ def check_grub(path: Path) -> list[str]:
     errors = []
     if text.count("{") != text.count("}"):
         errors.append(f"{path}: unbalanced braces")
+    # Signed GRUB's built-in prefix is (tftp,<server>)/EFI/BOOT, not the directory
+    # it was loaded from, so the entry file must set it.
+    if path.name.startswith("grub") and not re.search(r'^set prefix="\(\$\{root\}\)/\S+/EFI/BOOT"$', text, re.M):
+        errors.append(f"{path}: grub.cfg must set prefix to its own TFTP/HTTP directory")
+    # test -f/-e lists the parent directory, which GRUB can't do over TFTP/HTTP:
+    # it is always false there and the file is never even requested.
+    if re.search(r'\[[^]]*-[fe] "?\$\{prefix\}', text):
+        errors.append(f"{path}: test -f/-e on ${{prefix}} is always false over the network")
     if path.name == "menu.cfg" and "--id local" not in text:
         errors.append(f"{path}: menu has no local-disk entry")
     if "/hosts/" in path.as_posix() and "--id install" not in text:

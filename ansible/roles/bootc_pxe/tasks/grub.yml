@@ -5,9 +5,13 @@
 - name: Render grub.cfg (per-MAC dispatch)
   ansible.builtin.template:
     src: grub.cfg.j2
-    dest: "{{ item }}/grub.cfg"
+    dest: "{{ item.dir }}/grub.cfg"
     mode: "0644"
-  loop: "{{ __bootc_pxe_efi_dirs }}"
+  loop: "{{ __bootc_pxe_grub_entries }}"
+  loop_control:
+    label: "{{ item.proto }}: {{ item.dir }}"
+  vars:
+    grub_prefix_path: "{{ item.path }}"
 
 - name: Render menu.cfg (full menu for unknown hosts)
   ansible.builtin.template:

@@ -9,6 +9,11 @@ __bootc_pxe_efi_dirs:
 __bootc_pxe_iso_mount: /run/bootc-pxe-iso
 __bootc_pxe_http_host: "{{ bootc_pxe_http_url | urlsplit('netloc') }}"
 __bootc_pxe_http_path: "{{ bootc_pxe_http_url | urlsplit('path') }}"
+# grub.cfg per protocol: where it lives on disk, and the path GRUB sees it at.
+# grub.cfg sets $prefix from `path` (signed GRUB's built-in prefix is /EFI/BOOT).
+__bootc_pxe_grub_entries:
+  - {proto: tftp, dir: "{{ __bootc_pxe_tftp_dir }}/EFI/BOOT", path: "/{{ bootc_pxe_tftp_subdir }}/EFI/BOOT"}
+  - {proto: http, dir: "{{ bootc_pxe_http_root }}/EFI/BOOT", path: "{{ __bootc_pxe_http_path }}/EFI/BOOT"}
 __bootc_pxe_efi_loader: "{{ 'BOOTX64.EFI' if bootc_pxe_secure_boot else 'grubx64.efi' }}"
 __bootc_pxe_packages_base:
   - httpd
