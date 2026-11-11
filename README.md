@@ -73,3 +73,7 @@ To try the whole thing on one Windows PC without touching your network, see
 5. [OpenShift Virtualization / KubeVirt](docs/kubevirt.md)
 6. [Day-2: patch, deploy, roll back](docs/day2.md)
 7. [Migrating from the legacy RPM PXE setup](docs/migrating-from-legacy-pxe.md)
+
+## License
+
+[MIT](LICENSE)
