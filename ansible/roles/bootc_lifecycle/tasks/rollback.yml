@@ -10,7 +10,7 @@
 
 - name: Remember where we're going
   ansible.builtin.set_fact:
-    __bootc_rollback_target: "{{ bootc_lifecycle_state.rollback_digest }}"
+    __bootc_target_digest: "{{ bootc_lifecycle_state.rollback_digest }}"
 
 - name: Queue the rollback (bootc rollback)
   ansible.builtin.command:
@@ -20,6 +20,4 @@
 
 - name: Reboot into the previous image and verify
   ansible.builtin.include_tasks: reboot_and_verify.yml
-  vars:
-    __bootc_target_digest: "{{ __bootc_rollback_target }}"
   when: bootc_lifecycle_reboot | bool
