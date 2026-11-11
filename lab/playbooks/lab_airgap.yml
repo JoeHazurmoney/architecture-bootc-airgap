@@ -18,23 +18,27 @@
       failed_when: false
 
     - name: Turn the airgap on
-      when: airgap == 'on' and __policy.rc != 0
+      when: airgap == 'on'
       block:
         - name: Create the egress policy (HOST -> public = REJECT)
           ansible.builtin.command:
             argv: [firewall-cmd, --permanent, --new-policy=bootc-lab-airgap]
           changed_when: true
+          when: __policy.rc != 0
 
+        # One setting per call: firewall-cmd refuses ingress and egress zones
+        # together. Each runs only if --info-policy doesn't show it yet.
         - name: Configure the policy
           ansible.builtin.command:
-            argv:
-              - firewall-cmd
-              - --permanent
-              - --policy=bootc-lab-airgap
-              - --add-ingress-zone=HOST
-              - --add-egress-zone=public
-              - --set-target=REJECT
+            argv: [firewall-cmd, --permanent, --policy=bootc-lab-airgap, "{{ item.arg }}"]
           changed_when: true
+          when: item.shown not in __policy.stdout
+          loop:
+            - {arg: --add-ingress-zone=HOST, shown: "ingress-zones: HOST"}
+            - {arg: --add-egress-zone=public, shown: "egress-zones: public"}
+            - {arg: --set-target=REJECT, shown: "target: REJECT"}
+          loop_control:
+            label: "{{ item.arg }}"
 
     - name: Turn the airgap off
       ansible.builtin.command:

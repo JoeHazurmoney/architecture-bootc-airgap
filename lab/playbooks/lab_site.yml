@@ -132,12 +132,21 @@
         immediate: true
         state: enabled
 
+    # /etc/bootc-build holds auth.json: 0700, as bootc_image_build sets it
+    # (a different mode here flips it back and forth on every run).
     - name: Registry directories
       ansible.builtin.file:
-        path: "{{ item }}"
+        path: "{{ item.path }}"
         state: directory
-        mode: "0750"
-      loop: [/srv/registry/data, /srv/registry/certs, /srv/registry/auth, /srv/iso, /etc/bootc-build]
+        mode: "{{ item.mode | default('0750') }}"
+      loop:
+        - {path: /srv/registry/data}
+        - {path: /srv/registry/certs}
+        - {path: /srv/registry/auth}
+        - {path: /srv/iso}
+        - {path: /etc/bootc-build, mode: "0700"}
+      loop_control:
+        label: "{{ item.path }}"
 
     - name: Registry TLS files
       ansible.builtin.copy:
