@@ -58,6 +58,13 @@ def check_kickstart(path: Path) -> list[str]:
     installers = [c for c in commands if c in ("ostreecontainer", "bootc")]
     if len(installers) != 1:
         errors.append(f"{path}: expected one ostreecontainer/bootc line, found {installers}")
+    # Without --target-imgref, the installed host's update source is the
+    # --source-imgref string, transport prefix and all, and `bootc upgrade` fails.
+    for ln in text.splitlines():
+        if ln.startswith("bootc "):
+            target = re.search(r"--target-imgref=(\S+)", ln)
+            if not target or re.match(r"[a-z-]+:(?!\d)", target.group(1)):
+                errors.append(f"{path}: bootc needs --target-imgref without a transport prefix")
     if "%packages" in commands:
         errors.append(f"{path}: %packages is not allowed in an image-mode install")
     # A text-mode install makes Anaconda link /etc default.target to multi-user.target,
