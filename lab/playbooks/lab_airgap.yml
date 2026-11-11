@@ -51,6 +51,22 @@
         argv: [firewall-cmd, --reload]
       changed_when: false
 
+    # HOST -> public must not cover the lab side, or the PXE VM loses its clients.
+    - name: The lab interface must still be in the internal zone
+      ansible.builtin.command:
+        argv: [firewall-cmd, "--get-zone-of-interface={{ __lab_iface }}"]
+      vars:
+        __lab_iface: >-
+          {{ ansible_facts['interfaces']
+             | map('regex_replace', '-', '_')
+             | map('extract', ansible_facts)
+             | selectattr('ipv4', 'defined')
+             | selectattr('ipv4.address', 'equalto', lab_pxe_ip)
+             | map(attribute='device') | first }}
+      register: __lab_zone
+      changed_when: false
+      failed_when: __lab_zone.stdout != 'internal'
+
     - name: Probe the internet
       ansible.builtin.uri:
         url: https://quay.io/v2/

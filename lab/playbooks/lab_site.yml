@@ -124,6 +124,34 @@
         immediate: true
         state: enabled
 
+    # NetworkManager owns the interface: on `firewall-cmd --reload` firewalld takes
+    # the zone from the NM connection, and an empty one means the default zone
+    # (public). lab_airgap.yml then cut the PXE VM off from its own clients.
+    - name: Find the lab interface's NetworkManager connection
+      ansible.builtin.command:
+        argv: [nmcli, -g, GENERAL.CONNECTION, device, show, "{{ lab_iface }}"]
+      register: __lab_con
+      changed_when: false
+
+    - name: Read that connection's zone
+      ansible.builtin.command:
+        argv: [nmcli, -g, connection.zone, connection, show, "{{ __lab_con.stdout }}"]
+      register: __lab_con_zone
+      changed_when: false
+
+    - name: Pin the internal zone in NetworkManager
+      when: __lab_con_zone.stdout != 'internal'
+      block:
+        - name: Set connection.zone=internal
+          ansible.builtin.command:
+            argv: [nmcli, connection, modify, "{{ __lab_con.stdout }}", connection.zone, internal]
+          changed_when: true
+
+        - name: Apply it without bouncing the link
+          ansible.builtin.command:
+            argv: [nmcli, device, reapply, "{{ lab_iface }}"]
+          changed_when: true
+
     - name: Open the registry port on the lab side
       ansible.posix.firewalld:
         port: 5000/tcp
