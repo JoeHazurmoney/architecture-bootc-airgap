@@ -17,8 +17,15 @@ log() { echo "bootc-health: $*"; }
 
 mkdir -p "${STATE_DIR}"
 
-# Let boot finish first (returns running or degraded).
-systemctl is-system-running --wait >/dev/null 2>&1 || true
+# Let the rest of boot settle first (checks like gdm need graphical.target).
+# Not `systemctl is-system-running --wait`: this unit's own start job is part of
+# boot, so that waits for itself until TimeoutStartSec, the check then fails, and
+# a good upgrade gets rolled back. Wait for every job except our own instead.
+self_unit=bootc-health-check.service
+while systemctl list-jobs --no-legend 2>/dev/null \
+        | awk -v self="${self_unit}" '$2 != self { other = 1 } END { exit !other }'; do
+    sleep 2
+done
 
 if ! status_json=$(bootc status --format=json 2>/dev/null); then
     log "cannot read bootc status"
