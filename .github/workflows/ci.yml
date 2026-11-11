@@ -1,0 +1,49 @@
+---
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint-render:
+    name: Lint and render check
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build tools container
+        run: make tools ENGINE=docker
+      - name: yamllint + ansible-lint
+        run: make lint ENGINE=docker
+      - name: Render Kickstarts, GRUB and DHCP for every inventory, validate with pykickstart
+        run: make render ENGINE=docker
+
+  molecule:
+    name: Molecule (bootc_pxe)
+    runs-on: ubuntu-24.04
+    needs: lint-render
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build tools container
+        run: make tools ENGINE=docker
+      - name: molecule test
+        run: make test ENGINE=docker
+
+  images:
+    name: Build images (AlmaLinux 10 stand-in base)
+    runs-on: ubuntu-24.04
+    needs: lint-render
+    steps:
+      - uses: actions/checkout@v5
+      - name: Free disk space for the GNOME layer
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+      - name: Build server + workstation (each ends with bootc container lint)
+        run: make images ENGINE=docker VERSION=ci-${{ github.run_number }}

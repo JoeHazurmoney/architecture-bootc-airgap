@@ -1,0 +1,58 @@
+---
+# Snippets are always rendered: they're the handoff to whoever runs the real
+# DHCP service (Kea, ISC dhcpd, Infoblox). dnsmasq runs only in proxy or full mode.
+- name: Create the DHCP snippets directory
+  ansible.builtin.file:
+    path: "{{ bootc_pxe_snippets_dir }}"
+    state: directory
+    mode: "0755"
+
+- name: Render DHCP snippets
+  ansible.builtin.template:
+    src: "dhcp/{{ item }}.j2"
+    dest: "{{ bootc_pxe_snippets_dir }}/{{ item }}"
+    mode: "0644"
+  loop:
+    - README.md
+    - kea-dhcp4-client-classes.json
+    - isc-dhcpd.conf
+    - infoblox.md
+    - dnsmasq-proxy.conf
+
+- name: Fetch DHCP snippets to the control node
+  ansible.builtin.fetch:
+    src: "{{ bootc_pxe_snippets_dir }}/{{ item }}"
+    dest: "{{ bootc_pxe_fetch_snippets_to }}/{{ inventory_hostname }}/"
+    flat: true
+  loop:
+    - README.md
+    - kea-dhcp4-client-classes.json
+    - isc-dhcpd.conf
+    - infoblox.md
+    - dnsmasq-proxy.conf
+  when: bootc_pxe_fetch_snippets_to | length > 0
+
+- name: Configure dnsmasq (proxy or full mode)
+  ansible.builtin.template:
+    src: dnsmasq-bootc.conf.j2
+    dest: /etc/dnsmasq.d/bootc-pxe.conf
+    mode: "0644"
+    validate: /usr/sbin/dnsmasq --test --conf-file=%s
+  notify: Restart dnsmasq
+  when: bootc_pxe_dhcp_mode in ['proxy', 'full']
+
+- name: Enable dnsmasq
+  ansible.builtin.systemd_service:
+    name: dnsmasq.service
+    enabled: true
+    state: started
+  when:
+    - bootc_pxe_dhcp_mode in ['proxy', 'full']
+    - bootc_pxe_manage_services | bool
+
+- name: Remove the dnsmasq config in snippets mode
+  ansible.builtin.file:
+    path: /etc/dnsmasq.d/bootc-pxe.conf
+    state: absent
+  notify: Restart dnsmasq
+  when: bootc_pxe_dhcp_mode == 'snippets'

@@ -1,0 +1,355 @@
+---
+# Brings up the whole lab on bootc-lab-pxe:
+# lab CA -> TLS registry -> "mirror" bases + RPMs -> PXE server -> v1.0 images (stable).
+# Run from the tools container on the PXE VM (see lab/README.md):
+#   lab/run-tools.sh ansible-playbook -i lab/inventory lab/playbooks/lab_site.yml
+
+- name: Lab secrets on the control node (CA, registry cert)
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    sd: "{{ lab_secrets_dir }}"
+  tasks:
+    - name: Require the lab SSH key (made by lab/prepare_pxe_vm.py)
+      ansible.builtin.stat:
+        path: "{{ sd }}/id_ed25519"
+      register: __key
+      failed_when: not __key.stat.exists
+
+    - name: Lab CA key
+      community.crypto.openssl_privatekey:
+        path: "{{ sd }}/lab-ca.key"
+        type: ECC
+        curve: secp384r1
+        mode: "0600"
+
+    - name: Lab CA CSR
+      community.crypto.openssl_csr_pipe:
+        privatekey_path: "{{ sd }}/lab-ca.key"
+        common_name: bootc lab CA
+        basic_constraints: ["CA:TRUE"]
+        basic_constraints_critical: true
+        key_usage: [keyCertSign, cRLSign]
+        key_usage_critical: true
+      register: __ca_csr
+      changed_when: false
+
+    - name: Lab CA certificate
+      community.crypto.x509_certificate:
+        path: "{{ sd }}/lab-ca.crt"
+        csr_content: "{{ __ca_csr.csr }}"
+        privatekey_path: "{{ sd }}/lab-ca.key"
+        provider: selfsigned
+        selfsigned_not_after: "+3650d"
+        mode: "0644"
+
+    - name: Registry key
+      community.crypto.openssl_privatekey:
+        path: "{{ sd }}/registry.key"
+        type: ECC
+        curve: secp384r1
+        mode: "0600"
+
+    - name: Registry CSR
+      community.crypto.openssl_csr_pipe:
+        privatekey_path: "{{ sd }}/registry.key"
+        common_name: "{{ lab_pxe_ip }}"
+        subject_alt_name: ["IP:{{ lab_pxe_ip }}", "DNS:bootc-lab-pxe"]
+        extended_key_usage: [serverAuth]
+      register: __reg_csr
+      changed_when: false
+
+    - name: Registry certificate signed by the lab CA
+      community.crypto.x509_certificate:
+        path: "{{ sd }}/registry.crt"
+        csr_content: "{{ __reg_csr.csr }}"
+        provider: ownca
+        ownca_path: "{{ sd }}/lab-ca.crt"
+        ownca_privatekey_path: "{{ sd }}/lab-ca.key"
+        ownca_not_after: "+825d"
+        mode: "0644"
+
+- name: PXE VM base setup, TLS registry, mirrored content
+  hosts: pxe_servers
+  become: true
+  vars:
+    sd: "{{ lab_secrets_dir }}"
+  handlers:
+    - name: Update CA trust
+      ansible.builtin.command: update-ca-trust
+      changed_when: true
+
+    - name: Build repo metadata
+      ansible.builtin.command:
+        argv: [createrepo_c, --update, "{{ lab_repo_dir }}"]
+      changed_when: true
+  tasks:
+    - name: Find the lab interface (the one holding {{ lab_pxe_ip }})
+      ansible.builtin.set_fact:
+        lab_iface: >-
+          {{ ansible_facts['interfaces']
+             | map('regex_replace', '-', '_')
+             | map('extract', ansible_facts)
+             | selectattr('ipv4', 'defined')
+             | selectattr('ipv4.address', 'equalto', lab_pxe_ip)
+             | map(attribute='device') | first }}
+        cacheable: true
+
+    - name: Packages
+      ansible.builtin.dnf:
+        name: [podman, skopeo, httpd-tools, jq, rsync, qemu-img, firewalld, python3-cryptography]
+        state: present
+
+    - name: Enable firewalld
+      ansible.builtin.systemd_service:
+        name: firewalld
+        enabled: true
+        state: started
+
+    - name: Put the lab interface in the internal zone (uplink stays in public)
+      ansible.posix.firewalld:
+        interface: "{{ lab_iface }}"
+        zone: internal
+        permanent: true
+        immediate: true
+        state: enabled
+
+    - name: Open the registry port on the lab side
+      ansible.posix.firewalld:
+        port: 5000/tcp
+        zone: internal
+        permanent: true
+        immediate: true
+        state: enabled
+
+    - name: Registry directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: "0750"
+      loop: [/srv/registry/data, /srv/registry/certs, /srv/registry/auth, /srv/iso]
+
+    - name: Registry TLS files
+      ansible.builtin.copy:
+        src: "{{ sd }}/{{ item }}"
+        dest: /srv/registry/certs/{{ item }}
+        mode: "0640"
+      loop: [registry.crt, registry.key]
+
+    - name: Trust the lab CA on the PXE VM
+      ansible.builtin.copy:
+        src: "{{ sd }}/lab-ca.crt"
+        dest: /etc/pki/ca-trust/source/anchors/bootc-lab-ca.crt
+        mode: "0644"
+      notify: Update CA trust
+
+    - name: Check the registry htpasswd
+      ansible.builtin.command:
+        argv: [htpasswd, -vb, /srv/registry/auth/htpasswd, "{{ lab_registry_user }}", "{{ lab_registry_password }}"]
+      register: __htpw
+      changed_when: false
+      failed_when: false
+      no_log: true
+
+    - name: Write the registry htpasswd (bcrypt)
+      ansible.builtin.command:
+        argv: [htpasswd, -Bbc, /srv/registry/auth/htpasswd, "{{ lab_registry_user }}", "{{ lab_registry_password }}"]
+      when: __htpw.rc != 0
+      changed_when: true
+      no_log: true
+
+    - name: Registry as a Quadlet systemd service
+      ansible.builtin.copy:
+        dest: /etc/containers/systemd/bootc-lab-registry.container
+        mode: "0644"
+        content: |
+          # Lab stand-in for the internal mirror registry (Quay / OCP mirror registry)
+          [Container]
+          Image={{ lab_registry_image }}
+          PublishPort=5000:5000
+          Volume=/srv/registry/data:/var/lib/registry:Z
+          Volume=/srv/registry/certs:/certs:ro,Z
+          Volume=/srv/registry/auth:/auth:ro,Z
+          Environment=REGISTRY_HTTP_TLS_CERTIFICATE=/certs/registry.crt
+          Environment=REGISTRY_HTTP_TLS_KEY=/certs/registry.key
+          Environment=REGISTRY_AUTH=htpasswd
+          Environment=REGISTRY_AUTH_HTPASSWD_REALM=bootc-lab
+          Environment=REGISTRY_AUTH_HTPASSWD_PATH=/auth/htpasswd
+          Environment=REGISTRY_STORAGE_DELETE_ENABLED=true
+
+          [Service]
+          Restart=always
+
+          [Install]
+          WantedBy=multi-user.target
+      register: __quadlet
+
+    - name: Start the registry
+      ansible.builtin.systemd_service:
+        name: bootc-lab-registry.service
+        state: "{{ 'restarted' if __quadlet is changed else 'started' }}"
+        daemon_reload: true
+
+    - name: Flush handlers (CA trust before talking to the registry)
+      ansible.builtin.meta: flush_handlers
+
+    - name: Registry auth file for skopeo/podman
+      ansible.builtin.copy:
+        dest: /etc/bootc-build/auth.json
+        content: "{{ lab_registry_auth | to_nice_json }}\n"
+        mode: "0600"
+      no_log: true
+
+    - name: Wait for the registry
+      ansible.builtin.uri:
+        url: https://{{ lab_registry }}/v2/
+        status_code: [200, 401]
+      register: __reg
+      until: __reg.status in [200, 401]
+      retries: 30
+      delay: 2
+
+    - name: Check what's already mirrored
+      ansible.builtin.command:
+        argv: [skopeo, inspect, --raw, "docker://{{ lab_registry }}/{{ item.dest }}"]
+      environment:
+        REGISTRY_AUTH_FILE: /etc/bootc-build/auth.json
+      loop: "{{ lab_mirror_images }}"
+      loop_control:
+        label: "{{ item.dest }}"
+      register: __mirrored
+      changed_when: false
+      failed_when: false
+
+    - name: Mirror base images into the lab registry (the oc-mirror / skopeo step)
+      ansible.builtin.command:
+        # x86_64 only; production oc-mirror configs pick architectures explicitly too
+        argv: [skopeo, copy, --override-arch, amd64, "docker://{{ item.item.src }}", "docker://{{ lab_registry }}/{{ item.item.dest }}"]
+      environment:
+        REGISTRY_AUTH_FILE: /etc/bootc-build/auth.json
+      loop: "{{ __mirrored.results }}"
+      loop_control:
+        label: "{{ item.item.dest }}"
+      when: item.rc != 0
+      changed_when: true
+
+    - name: Download the AlmaLinux 10.2 boot ISO
+      ansible.builtin.get_url:
+        url: "{{ lab_iso_url }}"
+        dest: "{{ lab_iso_path }}"
+        checksum: "{{ lab_iso_checksum }}"
+        mode: "0644"
+        timeout: 600
+
+    # Internal RPM mirror: resolve the image package set inside BOTH dated
+    # bases, so the dependencies match what each build will need.
+    - name: RPM mirror staging directory
+      ansible.builtin.file:
+        path: /srv/lab-repo
+        state: directory
+        mode: "0755"
+
+    - name: Download the image package set (resolved inside each base image)
+      ansible.builtin.command:
+        argv: >-
+          {{ ['podman', 'run', '--rm', '-v', '/srv/lab-repo:/out:Z',
+              lab_registry ~ '/mirror/almalinux-bootc:' ~ item,
+              'dnf', '-y', '-q', 'download', '--resolve', '--destdir', '/out']
+             + lab_repo_packages }}
+        creates: /srv/lab-repo/.done-{{ item }}
+      environment:
+        REGISTRY_AUTH_FILE: /etc/bootc-build/auth.json
+      loop: ["{{ lab_base_old }}", "{{ lab_base_new }}"]
+
+    - name: Mark downloads done
+      ansible.builtin.file:
+        path: /srv/lab-repo/.done-{{ item }}
+        state: touch
+        mode: "0644"
+        modification_time: preserve
+        access_time: preserve
+      loop: ["{{ lab_base_old }}", "{{ lab_base_new }}"]
+
+    - name: Install createrepo_c
+      ansible.builtin.dnf:
+        name: createrepo_c
+        state: present
+
+    - name: Mirror directory under the PXE web root
+      ansible.builtin.file:
+        path: "{{ lab_repo_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Publish the mirror under the PXE web root
+      ansible.builtin.command:
+        argv: [rsync, -a, --delete, --exclude=.done-*, --itemize-changes, /srv/lab-repo/, "{{ lab_repo_dir }}/"]
+      register: __repo_sync
+      changed_when: __repo_sync.stdout | length > 0
+      notify: Build repo metadata
+
+- name: Point image builds at the lab mirror (images/repos/ on the control node)
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Write images/repos/lab-airgap.repo (git-ignored)
+      ansible.builtin.copy:
+        dest: "{{ playbook_dir }}/../../images/repos/lab-airgap.repo"
+        mode: "0644"
+        content: |
+          # Generated by lab_site.yml: the lab's internal RPM mirror
+          [lab-airgap]
+          name=bootc lab internal mirror
+          baseurl={{ lab_repo_url }}
+          enabled=1
+          gpgcheck=1
+          gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-AlmaLinux-10
+
+- name: PXE server (also serves the RPM mirror)
+  hosts: pxe_servers
+  become: true
+  roles:
+    - role: bootc_pxe
+
+- name: First images (v1.0 on the older base), promoted to stable
+  hosts: bootc_build
+  become: true
+  tasks:
+    - name: Does bootc/server:stable exist yet?
+      ansible.builtin.command:
+        argv: [skopeo, inspect, --raw, "docker://{{ lab_registry }}/bootc/server:stable"]
+      environment:
+        REGISTRY_AUTH_FILE: /etc/bootc-build/auth.json
+      register: __stable
+      changed_when: false
+      failed_when: false
+
+    - name: Build v1.0 and promote it
+      when: __stable.rc != 0
+      block:
+        - name: Build v1.0
+          ansible.builtin.include_role:
+            name: bootc_image_build
+          vars:
+            bootc_build_action: build
+            bootc_build_version: "10.2-lab.1.0"
+
+        - name: Promote v1.0 to stable
+          ansible.builtin.include_role:
+            name: bootc_image_build
+          vars:
+            bootc_build_action: promote
+
+- name: Lab summary
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: How to log in to lab clients
+      ansible.builtin.debug:
+        msg:
+          - "SSH: ssh -i lab/.lab-secrets/id_ed25519 labadmin@10.77.0.101 (srv01) / 10.77.0.102 (ws01)"
+          - "Console / GDM password for labadmin is in lab/.lab-secrets/labadmin-password"
+          - "Next: create clients on Windows: lab/hyperv/New-BootcLabClient.ps1"

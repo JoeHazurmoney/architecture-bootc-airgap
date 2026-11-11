@@ -1,0 +1,119 @@
+---
+- name: Set image references for {{ __profile.name }}
+  ansible.builtin.set_fact:
+    __repo: "{{ bootc_build_registry }}/{{ __profile.repository }}"
+    __from: >-
+      {{ bootc_build_registry ~ '/' ~ (bootc_build_profiles | selectattr('name', 'equalto', __profile.from_profile) | first).repository ~ ':' ~ __bootc_version
+         if __profile.from_profile is defined else bootc_build_base_image }}
+
+- name: Build {{ __profile.name }}
+  ansible.builtin.command:
+    argv: >-
+      {{ ['podman', 'build',
+          '--pull=' ~ ('never' if __profile.from_profile is defined else 'missing'),
+          '-f', __bootc_src ~ '/' ~ __profile.containerfile,
+          '-t', __repo ~ ':' ~ __bootc_version,
+          '--build-arg', 'BASE_IMAGE=' ~ __from,
+          '--build-arg', 'IMAGE_VERSION=' ~ __bootc_version,
+          '--build-arg', 'GIT_SHA=' ~ bootc_build_git_sha]
+         + (bootc_build_args | dict2items | map(attribute='key') | zip(bootc_build_args | dict2items | map(attribute='value'))
+            | map('join', '=') | map('regex_replace', '^', '--build-arg=') | list)
+         + [__bootc_src] }}
+  environment:
+    REGISTRY_AUTH_FILE: "{{ bootc_build_authfile }}"
+  changed_when: true
+
+- name: List RPMs in the new image for {{ __profile.name }}
+  ansible.builtin.command:
+    argv: [podman, run, --rm, --entrypoint, rpm, "{{ __repo }}:{{ __bootc_version }}", -qa, --qf, "%{NAME} %{VERSION}-%{RELEASE}.%{ARCH}\n"]
+  register: __rpms_new
+  changed_when: false
+
+- name: Pull the current channel image for comparison, channel {{ bootc_build_channel }}
+  ansible.builtin.command:
+    argv: [podman, pull, "{{ __repo }}:{{ bootc_build_channel }}"]
+  environment:
+    REGISTRY_AUTH_FILE: "{{ bootc_build_authfile }}"
+  register: __prev_pull
+  changed_when: false
+  failed_when: false
+
+- name: List RPMs in the current channel image, channel {{ bootc_build_channel }}
+  ansible.builtin.command:
+    argv: [podman, run, --rm, --entrypoint, rpm, "{{ __repo }}:{{ bootc_build_channel }}", -qa, --qf, "%{NAME} %{VERSION}-%{RELEASE}.%{ARCH}\n"]
+  register: __rpms_old
+  changed_when: false
+  when: __prev_pull.rc == 0
+
+- name: Work out the RPM changes
+  ansible.builtin.set_fact:
+    __rpm_old_map: "{{ dict(__rpms_old.stdout_lines | default([]) | map('split', ' ') | list) }}"
+    __rpm_new_map: "{{ dict(__rpms_new.stdout_lines | map('split', ' ') | list) }}"
+
+- name: Write the RPM diff report
+  ansible.builtin.copy:
+    dest: "{{ __bootc_report_dir }}/{{ __bootc_version }}-{{ __profile.name }}-rpm-diff.txt"
+    mode: "0644"
+    content: |
+      # {{ __repo }}:{{ __bootc_version }} vs {{ __repo }}:{{ bootc_build_channel }}{{ '' if __prev_pull.rc == 0 else ' (no previous image)' }}
+      {% for name in (__rpm_new_map.keys() | list + __rpm_old_map.keys() | list) | unique | sort %}
+      {% if name not in __rpm_old_map %}
+      + {{ name }} {{ __rpm_new_map[name] }}
+      {% elif name not in __rpm_new_map %}
+      - {{ name }} {{ __rpm_old_map[name] }}
+      {% elif __rpm_old_map[name] != __rpm_new_map[name] %}
+      ~ {{ name }} {{ __rpm_old_map[name] }} -> {{ __rpm_new_map[name] }}
+      {% endif %}
+      {% endfor %}
+  register: __rpm_report
+
+- name: Show the RPM changes
+  ansible.builtin.command:
+    argv: [grep, -E, '^[+~-] ', "{{ __rpm_report.dest }}"]
+  register: __rpm_changes
+  changed_when: false
+  failed_when: false
+
+- name: RPM changes in {{ __profile.name }}
+  ansible.builtin.debug:
+    msg: "{{ __rpm_changes.stdout_lines | default(['no RPM changes'], true) }}"
+
+- name: Push the image with its version tag for {{ __profile.name }}
+  ansible.builtin.command:
+    argv:
+      - podman
+      - push
+      - --digestfile
+      - "{{ bootc_build_workdir }}/{{ __profile.name }}.digest"
+      - "{{ __repo }}:{{ __bootc_version }}"
+  environment:
+    REGISTRY_AUTH_FILE: "{{ bootc_build_authfile }}"
+  changed_when: true
+  when: bootc_build_push | bool
+
+- name: Read the pushed digest
+  ansible.builtin.slurp:
+    src: "{{ bootc_build_workdir }}/{{ __profile.name }}.digest"
+  register: __pushed_digest
+  when: bootc_build_push | bool
+
+- name: Point the channel tag at the new digest (registry-side copy keeps the digest), channel {{ bootc_build_channel }}
+  ansible.builtin.command:
+    argv:
+      - skopeo
+      - copy
+      - --preserve-digests
+      - "docker://{{ __repo }}:{{ __bootc_version }}"
+      - "docker://{{ __repo }}:{{ bootc_build_channel }}"
+  environment:
+    REGISTRY_AUTH_FILE: "{{ bootc_build_authfile }}"
+  changed_when: true
+  when: bootc_build_push | bool
+
+- name: Record the built image
+  ansible.builtin.set_fact:
+    __bootc_built: >-
+      {{ __bootc_built | default({}) | combine({__profile.name: {
+           'ref': __repo ~ ':' ~ __bootc_version,
+           'digest': (__pushed_digest.content | b64decode | trim) if bootc_build_push else '',
+           'rpm_report': __rpm_report.dest}}) }}

@@ -1,0 +1,135 @@
+---
+# End-to-end Day-2 test of patch -> deploy -> rollback, as in docs/day2.md.
+# Run with the airgap ON. Each step can also be run on its own (tags).
+#   lab/run-tools.sh ansible-playbook -i lab/inventory lab/playbooks/lab_patch_cycle.yml
+#
+# 1 patch     build v1.1 on the newer mirrored base -> :testing, show the RPM diff
+# 2 promote   :testing -> :stable
+# 3 upgrade   fleet stages v1.1, reboots, verifies the digest and health
+# 4 rollback  fleet goes back to v1.0 with bootc rollback
+# 5 badimage  re-upgrade to v1.1, then build v1.2 with a failing health check;
+#             hosts roll back to v1.1 on their own and the play reports it
+# 6 fleetrb   point :stable back at v1.1; an upgrade check finds nothing new
+
+- name: 1 Patch - build v1.1 on the newer base
+  hosts: bootc_build
+  become: true
+  tags: [patch]
+  roles:
+    - role: bootc_image_build
+      vars:
+        bootc_build_action: build
+        bootc_build_version: "10.2-lab.1.1"
+        lab_base_tag: "{{ lab_base_new }}"
+
+- name: 2 Promote v1.1 to stable
+  hosts: bootc_build
+  become: true
+  tags: [promote]
+  roles:
+    - role: bootc_image_build
+      vars:
+        bootc_build_action: promote
+
+- name: 3 Upgrade the fleet to v1.1
+  hosts: bootc_fleet
+  gather_facts: false
+  serial: 1
+  max_fail_percentage: 0
+  tags: [upgrade]
+  roles:
+    - role: bootc_lifecycle
+      vars:
+        bootc_lifecycle_action: upgrade
+        bootc_lifecycle_force_reboot: true
+
+- name: 4 Roll the fleet back to v1.0
+  hosts: bootc_fleet
+  gather_facts: false
+  tags: [rollback]
+  roles:
+    - role: bootc_lifecycle
+      vars:
+        bootc_lifecycle_action: rollback
+        bootc_lifecycle_force_reboot: true
+
+- name: 5a Re-upgrade to v1.1 (a known-good state)
+  hosts: bootc_fleet
+  gather_facts: false
+  tags: [badimage]
+  roles:
+    - role: bootc_lifecycle
+      vars:
+        bootc_lifecycle_action: upgrade
+        bootc_lifecycle_force_reboot: true
+
+- name: 5b Build a bad v1.2 (health check always fails) and promote it
+  hosts: bootc_build
+  become: true
+  tags: [badimage]
+  tasks:
+    - name: Build v1.2-bad
+      ansible.builtin.include_role:
+        name: bootc_image_build
+      vars:
+        bootc_build_action: build
+        bootc_build_version: "10.2-lab.1.2-bad"
+        lab_base_tag: "{{ lab_base_new }}"
+        bootc_build_args:
+          HEALTHCHECK_FORCE_FAIL: "true"
+
+    - name: Promote v1.2-bad (simulates a bad release getting through)
+      ansible.builtin.include_role:
+        name: bootc_image_build
+      vars:
+        bootc_build_action: promote
+
+- name: 5c Upgrade to v1.2-bad - hosts must roll themselves back
+  hosts: bootc_fleet
+  gather_facts: false
+  tags: [badimage]
+  tasks:
+    - name: Upgrade (expected to fail verification)
+      block:
+        - name: Upgrade
+          ansible.builtin.include_role:
+            name: bootc_lifecycle
+          vars:
+            bootc_lifecycle_action: upgrade
+            bootc_lifecycle_force_reboot: true
+      rescue:
+        - name: Read status after the failed upgrade
+          ansible.builtin.include_role:
+            name: bootc_lifecycle
+            tasks_from: status
+
+        - name: The host must be back on v1.1 by itself
+          ansible.builtin.assert:
+            that: bootc_lifecycle_state.booted_digest == bootc_lifecycle_before.booted_digest
+            success_msg: "Automatic rollback worked: back on {{ bootc_lifecycle_state.booted_digest }}"
+            fail_msg: "Host is on {{ bootc_lifecycle_state.booted_digest }}, expected {{ bootc_lifecycle_before.booted_digest }}"
+
+- name: 6 Fleet rollback - point stable back at v1.1
+  hosts: bootc_build
+  become: true
+  tags: [fleetrb]
+  roles:
+    - role: bootc_image_build
+      vars:
+        bootc_build_action: promote
+        promote_rollback: true
+
+- name: 6b Hosts see nothing new to stage
+  hosts: bootc_fleet
+  gather_facts: false
+  tags: [fleetrb]
+  roles:
+    - role: bootc_lifecycle
+      vars:
+        bootc_lifecycle_action: upgrade
+        bootc_lifecycle_reboot: false
+  post_tasks:
+    - name: Nothing staged
+      ansible.builtin.assert:
+        that: bootc_lifecycle_state.staged_digest | length == 0
+        success_msg: "No update staged: :stable is back on the image this host runs."

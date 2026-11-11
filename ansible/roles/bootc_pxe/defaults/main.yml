@@ -1,0 +1,94 @@
+---
+# =============================================================================
+# bootc_pxe: PXE / UEFI HTTP boot server that installs bootc images with
+# Kickstart. Every variable is validated in meta/argument_specs.yml.
+# =============================================================================
+
+# --- Installer media (RHEL 10 boot ISO in production, AlmaLinux 10 in the lab)
+bootc_pxe_installer_release: "10.2"              # names the versioned installer dir
+bootc_pxe_installer_name: "RHEL {{ bootc_pxe_installer_release }}"
+bootc_pxe_boot_media_source: iso                 # iso | dir
+bootc_pxe_iso_path: /srv/iso/rhel-{{ bootc_pxe_installer_release }}-x86_64-boot.iso
+bootc_pxe_media_dir: ""                          # source=dir: an already-extracted ISO tree
+
+# --- Server addressing and layout
+bootc_pxe_server_ip: "{{ ansible_facts['default_ipv4']['address'] | default('127.0.0.1') }}"
+bootc_pxe_http_url: "http://{{ bootc_pxe_server_ip }}/bootc"
+bootc_pxe_http_root: /var/www/bootc               # served at /bootc
+bootc_pxe_tftp_root: /var/lib/tftpboot
+bootc_pxe_tftp_subdir: bootc
+bootc_pxe_kernel_transport: http                  # http (fast) | tftp (most compatible)
+# Networks allowed to fetch /bootc/trust (registry CA + pull secret)
+bootc_pxe_allowed_networks:
+  - 10.0.0.0/8
+  - 172.16.0.0/12
+  - 192.168.0.0/16
+
+# --- Images and registry
+bootc_pxe_registry: registry.example.internal:5000
+bootc_pxe_images:
+  server:
+    repository: bootc/server
+    tag: stable
+  workstation:
+    repository: bootc/workstation
+    tag: stable
+# ostreecontainer works on RHEL 10.0+. bootc (--source-imgref) is the newer
+# Kickstart command (RHEL 10.2+ Anaconda).
+bootc_pxe_ks_directive: ostreecontainer
+bootc_pxe_signature_verification: false           # true once images are signed with a policy
+bootc_pxe_registry_ca: ""                         # PEM text; empty = public CA / already trusted
+bootc_pxe_registry_auth: {}                       # auth.json dict {"auths": {...}}; vault it
+
+# --- Kickstart content
+bootc_pxe_ks_lang: en_US.UTF-8
+bootc_pxe_ks_keyboard: us
+bootc_pxe_ks_timezone: UTC
+bootc_pxe_default_disk: ""                        # menu installs; "" = all disks (wipes them)
+bootc_pxe_partitioning: ""                        # raw Kickstart partitioning; "" = reqpart + / xfs
+bootc_pxe_admin_user: sysadmin
+bootc_pxe_admin_ssh_keys: []
+bootc_pxe_admin_password_hash: ""                 # SHA-512 crypt; "" = key-only, NOPASSWD sudo
+bootc_pxe_disable_cloud_init_on_metal: true
+bootc_pxe_ks_extra_post: ""
+bootc_pxe_reboot_after_install: true
+bootc_pxe_kernel_args: ""                         # extra installer args, e.g. console=ttyS0
+
+# --- Boot menu and per-host zero-touch
+bootc_pxe_menu_timeout: 10
+bootc_pxe_secure_boot: true                       # hand out shim (BOOTX64.EFI) not grubx64.efi
+bootc_pxe_bios_support: false                     # legacy BIOS via grub2-mknetdir
+# - name: ws-0042                (required)
+#   mac: "aa:bb:cc:dd:ee:ff"     (required)
+#   profile: workstation         (key of bootc_pxe_images)
+#   disk: nvme0n1                (strongly recommended on real hardware)
+#   state: install               (install = only onto a blank disk; reinstall = always;
+#                                 local = always boot the local disk)
+#   ip: 10.77.0.101              (DHCP reservation; dhcp_mode full only)
+#   image_tag: testing           (optional override; or image_digest: sha256:...)
+#   ks_directive: bootc          (optional per-host override)
+bootc_pxe_hosts: []
+
+# --- DHCP: snippets (default) | proxy (dnsmasq proxy-DHCP) | full (lab/isolated only)
+bootc_pxe_dhcp_mode: snippets
+bootc_pxe_dhcp_interface: ""
+bootc_pxe_dhcp_range_start: ""
+bootc_pxe_dhcp_range_end: ""
+bootc_pxe_dhcp_netmask: 255.255.255.0
+bootc_pxe_dhcp_lease_time: 12h
+bootc_pxe_dhcp_router: ""
+bootc_pxe_dhcp_dns: []
+bootc_pxe_proxy_dhcp_network: ""                  # proxy mode, e.g. 10.20.30.0
+bootc_pxe_snippets_dir: /root/bootc-pxe-dhcp-snippets
+bootc_pxe_fetch_snippets_to: ""                   # control-node dir; "" = don't fetch
+
+# --- Platform integration
+bootc_pxe_manage_firewall: true
+bootc_pxe_firewall_zone: ""                       # "" = default zone
+bootc_pxe_manage_selinux: true
+bootc_pxe_manage_services: true
+bootc_pxe_validate_kickstarts: true               # needs pykickstart (ksvalidator) from dnf
+bootc_pxe_ksvalidator_version: RHEL10
+
+# tasks_from: render only. Control-node dir to write rendered files to.
+bootc_pxe_render_dir: ""

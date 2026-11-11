@@ -1,0 +1,33 @@
+apiVersion: cdi.kubevirt.io/v1beta1
+kind: DataVolume
+metadata:
+  name: {{ __dv_name }}
+  namespace: {{ bootc_kubevirt_namespace }}
+  labels:
+    app.kubernetes.io/part-of: bootc
+    bootc.dev/profile: {{ bootc_kubevirt_name }}
+    bootc.dev/version: "{{ bootc_kubevirt_version }}"
+  annotations:
+    cdi.kubevirt.io/storage.bind.immediate.requested: "true"
+spec:
+  source:
+{% if bootc_kubevirt_source_type == 'http' %}
+    http:
+      url: {{ bootc_kubevirt_source_url }}
+{% else %}
+    registry:
+      url: {{ bootc_kubevirt_source_url }}
+{% endif %}
+{% if bootc_kubevirt_cert_configmap %}
+      certConfigMap: {{ bootc_kubevirt_cert_configmap }}
+{% endif %}
+{% if bootc_kubevirt_secret_ref %}
+      secretRef: {{ bootc_kubevirt_secret_ref }}
+{% endif %}
+  storage:
+{% if bootc_kubevirt_storage_class %}
+    storageClassName: {{ bootc_kubevirt_storage_class }}
+{% endif %}
+    resources:
+      requests:
+        storage: {{ bootc_kubevirt_storage_size }}

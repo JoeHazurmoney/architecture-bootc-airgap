@@ -1,0 +1,13 @@
+# Lab secrets, keys and generated media never get committed
+lab/.lab-secrets/
+lab/.media/
+artifacts/
+*.qcow2
+*.vhdx
+*.iso
+*.raw
+images/files/ca-trust/*.crt
+images/repos/*.repo
+.molecule/
+__pycache__/
+*.retry

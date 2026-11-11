@@ -1,0 +1,25 @@
+---
+# Host rollback: boot the previous deployment. This doesn't change the registry.
+# If the channel tag still points at the bad image, the next upgrade stages it
+# again, so roll back the channel too (image_promote.yml -e promote_rollback=true).
+- name: Require a rollback deployment
+  ansible.builtin.assert:
+    that: bootc_lifecycle_state.rollback_digest | length > 0
+    fail_msg: No rollback deployment on this host (fresh install, or rollback already used).
+    quiet: true
+
+- name: Remember where we're going
+  ansible.builtin.set_fact:
+    __bootc_rollback_target: "{{ bootc_lifecycle_state.rollback_digest }}"
+
+- name: Queue the rollback (bootc rollback)
+  ansible.builtin.command:
+    argv: [bootc, rollback]
+  changed_when: true
+  become: true
+
+- name: Reboot into the previous image and verify
+  ansible.builtin.include_tasks: reboot_and_verify.yml
+  vars:
+    __bootc_target_digest: "{{ __bootc_rollback_target }}"
+  when: bootc_lifecycle_reboot | bool

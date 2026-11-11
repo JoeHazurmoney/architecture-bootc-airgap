@@ -1,0 +1,63 @@
+---
+- name: Set references for {{ __profile.name }}
+  ansible.builtin.set_fact:
+    __repo: "{{ bootc_build_registry }}/{{ __profile.repository }}"
+    __source_tag: "{{ (bootc_build_promote_to ~ '-previous') if promote_rollback else bootc_build_promote_from }}"
+
+- name: Inspect the tags involved
+  ansible.builtin.command:
+    argv: [skopeo, inspect, --format, "{% raw %}{{.Digest}}{% endraw %}", "docker://{{ __repo }}:{{ item }}"]
+  environment:
+    REGISTRY_AUTH_FILE: "{{ bootc_build_authfile }}"
+  register: __tag_inspect
+  changed_when: false
+  failed_when: false
+  loop:
+    - "{{ __source_tag }}"
+    - "{{ bootc_build_promote_to }}"
+
+- name: Work out the digests
+  ansible.builtin.set_fact:
+    __source_digest: "{{ __tag_inspect.results[0].stdout | trim if __tag_inspect.results[0].rc == 0 else '' }}"
+    __target_digest: "{{ __tag_inspect.results[1].stdout | trim if __tag_inspect.results[1].rc == 0 else '' }}"
+
+- name: The source tag must exist
+  ansible.builtin.assert:
+    that: __source_digest | length > 0
+    fail_msg: "{{ __repo }}:{{ __source_tag }} not found; nothing to {{ 'roll back to' if promote_rollback else 'promote' }}."
+    quiet: true
+
+- name: Keep the current target digest as <target>-previous, target {{ bootc_build_promote_to }}
+  ansible.builtin.command:
+    argv:
+      - skopeo
+      - copy
+      - --preserve-digests
+      - "docker://{{ __repo }}:{{ bootc_build_promote_to }}"
+      - "docker://{{ __repo }}:{{ bootc_build_promote_to }}-previous"
+  environment:
+    REGISTRY_AUTH_FILE: "{{ bootc_build_authfile }}"
+  changed_when: true
+  when:
+    - not promote_rollback
+    - __target_digest | length > 0
+    - __target_digest != __source_digest
+
+- name: Point the target tag at the source tag {{ bootc_build_promote_to ~ ' <- ' ~ __source_tag }}
+  ansible.builtin.command:
+    argv:
+      - skopeo
+      - copy
+      - --preserve-digests
+      - "docker://{{ __repo }}:{{ __source_tag }}"
+      - "docker://{{ __repo }}:{{ bootc_build_promote_to }}"
+  environment:
+    REGISTRY_AUTH_FILE: "{{ bootc_build_authfile }}"
+  changed_when: true
+  when: __target_digest != __source_digest
+
+- name: Promotion result for {{ __profile.name }}
+  ansible.builtin.debug:
+    msg: >-
+      {{ __repo }}:{{ bootc_build_promote_to }} =
+      {{ __source_digest }} (from :{{ __source_tag }}; was {{ __target_digest | default('unset', true) }})

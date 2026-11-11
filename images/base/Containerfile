@@ -1,0 +1,72 @@
+# syntax=docker/dockerfile:1
+# ---------------------------------------------------------------------------
+# Base "server" image: one OS for bare metal (PXE + Kickstart) and VMs
+# (bootc-image-builder + cloud-init). The workstation image builds FROM this.
+#
+# Build context is images/ (so repos/ and files/ are shared):
+#   podman build -f images/base/Containerfile -t <registry>/bootc/server:<ver> images/
+#
+# Production base: Red Hat's image, mirrored into the airgap registry.
+# Lab/CI base:     --build-arg BASE_IMAGE=quay.io/almalinuxorg/almalinux-bootc:10.2
+# ---------------------------------------------------------------------------
+ARG BASE_IMAGE=registry.redhat.io/rhel10/rhel-bootc:10.2
+FROM ${BASE_IMAGE}
+
+ARG IMAGE_VERSION=dev
+ARG GIT_SHA=unknown
+# true = apply errata from the configured repos on top of the base image
+ARG APPLY_UPDATES=false
+# Space-separated internal NTP servers. Empty = keep the distro default.
+ARG NTP_SERVERS=""
+# Extra packages, e.g. "lldpd open-vm-tools". lldpd comes from EPEL, so it
+# needs an EPEL mirror .repo in images/repos/.
+ARG EXTRA_PACKAGES=""
+# Lab only: ship a health check that always fails, to test automatic rollback.
+ARG HEALTHCHECK_FORCE_FAIL=false
+
+RUN --mount=type=bind,source=repos,target=/run/extra-repos \
+    set -eux; \
+    opts=""; \
+    if ls /run/extra-repos/*.repo >/dev/null 2>&1; then opts="--setopt=reposdir=/run/extra-repos"; fi; \
+    if [ "${APPLY_UPDATES}" = "true" ]; then dnf -y ${opts} upgrade; fi; \
+    dnf -y ${opts} install \
+        cloud-init \
+        qemu-guest-agent \
+        hyperv-daemons \
+        linux-firmware \
+        ipmitool \
+        chrony \
+        jq \
+        ${EXTRA_PACKAGES}; \
+    dnf clean all; \
+    rm -rf /var/cache/dnf /var/lib/dnf /var/log/dnf* /var/log/hawkey.log /run/cloud-init /var/lib/cloud /var/cache/ldconfig
+
+COPY base/rootfs/ /
+COPY files/ca-trust/ /usr/share/pki/ca-trust-source/anchors/
+
+# Servers are upgraded by Ansible (bootc_lifecycle), not by the stock timer.
+RUN set -eux; \
+    rm -f /usr/share/pki/ca-trust-source/anchors/.gitkeep; \
+    update-ca-trust; \
+    if [ -n "${NTP_SERVERS}" ]; then \
+        sed -i -e '/^pool /d' -e '/^server /d' /etc/chrony.conf; \
+        for s in ${NTP_SERVERS}; do echo "server ${s} iburst" >> /etc/chrony.conf; done; \
+    fi; \
+    if [ "${HEALTHCHECK_FORCE_FAIL}" = "true" ]; then \
+        printf '#!/bin/bash\necho "forced failure (HEALTHCHECK_FORCE_FAIL=true build)"\nexit 1\n' \
+            > /usr/lib/bootc-health.d/99-forced-fail.sh; \
+    fi; \
+    # Normalize modes (build contexts from Windows/NTFS mark everything executable)
+    chmod 0644 /usr/lib/systemd/system/bootc-health-check.service /usr/lib/tmpfiles.d/bootc-image.conf \
+               /etc/ssh/sshd_config.d/40-bootc-hardening.conf /etc/cloud/cloud.cfg.d/90-bootc-datasources.cfg; \
+    chmod 0755 /usr/libexec/bootc-health-check /usr/lib/bootc-health.d/*.sh; \
+    systemctl enable chronyd.service bootc-health-check.service; \
+    systemctl disable bootc-fetch-apply-updates.timer; \
+    printf 'IMAGE_VERSION=%s\nGIT_SHA=%s\nPROFILE=server\n' "${IMAGE_VERSION}" "${GIT_SHA}" > /usr/lib/bootc-image-release
+
+LABEL org.opencontainers.image.title="bootc-server" \
+      org.opencontainers.image.version="${IMAGE_VERSION}" \
+      org.opencontainers.image.revision="${GIT_SHA}" \
+      org.opencontainers.image.description="Unified bootc server image (bare metal + VMs)"
+
+RUN bootc container lint

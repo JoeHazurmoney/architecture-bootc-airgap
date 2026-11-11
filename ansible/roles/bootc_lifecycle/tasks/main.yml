@@ -1,0 +1,21 @@
+---
+- name: Read bootc status (before)
+  ansible.builtin.include_tasks: status.yml
+
+- name: Keep the starting state for the report
+  ansible.builtin.set_fact:
+    bootc_lifecycle_before: "{{ bootc_lifecycle_state }}"
+
+- name: Run the requested action
+  ansible.builtin.include_tasks: "{{ bootc_lifecycle_action }}.yml"
+  when: bootc_lifecycle_action != 'status'
+
+- name: Report
+  ansible.builtin.debug:
+    msg:
+      action: "{{ bootc_lifecycle_action }}"
+      image: "{{ bootc_lifecycle_state.booted_ref }}"
+      booted: "{{ bootc_lifecycle_state.booted_digest }} ({{ bootc_lifecycle_state.booted_version }})"
+      staged: "{{ bootc_lifecycle_state.staged_digest | default('none', true) }}"
+      rollback: "{{ bootc_lifecycle_state.rollback_digest | default('none', true) }}"
+      booted_before: "{{ bootc_lifecycle_before.booted_digest }}"

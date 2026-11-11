@@ -1,0 +1,12 @@
+---
+# Promote the tested digest: :testing -> :stable (by digest, no rebuild).
+#   ansible-playbook playbooks/image_promote.yml
+# Fleet rollback: point :stable back at the previous digest.
+#   ansible-playbook playbooks/image_promote.yml -e promote_rollback=true
+- name: Promote or roll back the stable channel
+  hosts: bootc_build
+  become: true
+  roles:
+    - role: bootc_image_build
+      vars:
+        bootc_build_action: promote

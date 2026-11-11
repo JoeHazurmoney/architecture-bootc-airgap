@@ -1,0 +1,25 @@
+# Tooling image for this repo: Ansible control node, linters, Molecule,
+# kickstart validation, and disk-image helpers (qemu-img, genisoimage).
+# Everything runs in here, never on a host Python.
+#
+# Build (from repo root):  podman build -f tools/Containerfile -t bootc-tools .
+# Python is pinned by tag + digest. Upgrade only in a deliberate commit.
+FROM docker.io/library/python:3.14.10-slim@sha256:9aaa474097d094040649f2162a627c0049b408f52138d980916788d80f04802f
+
+ARG DEBIAN_FRONTEND=noninteractive
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      openssh-client rsync git make curl ca-certificates \
+      qemu-utils genisoimage skopeo openssl \
+ && rm -rf /var/lib/apt/lists/*
+
+COPY tools/requirements.txt /tmp/requirements.txt
+COPY ansible/requirements.yml /tmp/requirements.yml
+RUN pip install --no-cache-dir -r /tmp/requirements.txt \
+ && ansible-galaxy collection install -r /tmp/requirements.yml -p /usr/share/ansible/collections \
+ && rm -f /tmp/requirements.txt /tmp/requirements.yml
+
+ENV ANSIBLE_COLLECTIONS_PATH=/usr/share/ansible/collections \
+    ANSIBLE_FORCE_COLOR=1 \
+    PY_COLORS=1
+WORKDIR /work

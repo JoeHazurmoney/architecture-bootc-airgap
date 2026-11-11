@@ -1,0 +1,74 @@
+---
+# Converge + idempotence + verify for bootc_pxe in an AlmaLinux 10 systemd
+# container. A fake installer tree stands in for the ISO. DHCP binds to a
+# dummy interface inside the container, so it never answers on a real network.
+driver:
+  name: docker
+platforms:
+  - name: bootc-pxe-molecule
+    image: docker.io/almalinux/10-init:10.2-20261027@sha256:967cce22cb0e0266c5f6538cda936ed8a0f24eafd5afdcf38518818d4bf403b9
+    pre_build_image: true
+    command: /usr/sbin/init
+    privileged: true
+    cgroupns_mode: host
+    volumes:
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+    tmpfs:
+      - /run
+      - /tmp
+provisioner:
+  name: ansible
+  env:
+    ANSIBLE_ROLES_PATH: ${MOLECULE_PROJECT_DIRECTORY}/..
+  inventory:
+    host_vars:
+      bootc-pxe-molecule:
+        # Docker SDK connection: no docker CLI needed in the tools container
+        ansible_connection: community.docker.docker_api
+        bootc_pxe_boot_media_source: dir
+        bootc_pxe_media_dir: /srv/fake-media
+        bootc_pxe_installer_name: Molecule fake media
+        bootc_pxe_server_ip: 10.77.0.10
+        bootc_pxe_http_url: http://10.77.0.10/bootc
+        bootc_pxe_allowed_networks: [10.77.0.0/24, 127.0.0.0/8]
+        bootc_pxe_registry: registry.molecule.test:5000
+        bootc_pxe_registry_ca: |
+          -----BEGIN CERTIFICATE-----
+          MIIBfake
+          -----END CERTIFICATE-----
+        bootc_pxe_registry_auth:
+          auths:
+            "registry.molecule.test:5000":
+              auth: Ym9vdGM6bW9sZWN1bGU=
+        bootc_pxe_admin_ssh_keys:
+          - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMoleculeTestKeyOnly molecule
+        bootc_pxe_dhcp_mode: full
+        bootc_pxe_dhcp_interface: bootc0
+        bootc_pxe_dhcp_range_start: 10.77.0.150
+        bootc_pxe_dhcp_range_end: 10.77.0.199
+        bootc_pxe_bios_support: true
+        bootc_pxe_manage_firewall: false
+        bootc_pxe_manage_selinux: false
+        bootc_pxe_hosts:
+          - name: mol-srv01
+            mac: "02:00:77:00:01:01"
+            profile: server
+            disk: sda
+            ip: 10.77.0.101
+          - name: mol-ws01
+            mac: "02:00:77:00:01:02"
+            profile: workstation
+            disk: nvme0n1
+            state: local
+            ks_directive: bootc
+verifier:
+  name: ansible
+scenario:
+  test_sequence:
+    - destroy
+    - create
+    - prepare
+    - converge
+    - idempotence
+    - verify
+    - destroy

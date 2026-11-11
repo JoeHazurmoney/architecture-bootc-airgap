@@ -1,0 +1,37 @@
+---
+- name: Render one Kickstart per image profile (boot-menu installs)
+  ansible.builtin.template:
+    src: kickstart.ks.j2
+    dest: "{{ bootc_pxe_http_root }}/ks/{{ item }}.ks"
+    mode: "0644"
+  loop: "{{ bootc_pxe_images.keys() | list }}"
+  vars:
+    ks_profile: "{{ item }}"
+    ks_host: {}
+
+- name: Render per-host Kickstarts (zero-touch installs)
+  ansible.builtin.template:
+    src: kickstart.ks.j2
+    dest: "{{ bootc_pxe_http_root }}/ks/hosts/{{ item.name }}.ks"
+    mode: "0644"
+  loop: "{{ bootc_pxe_hosts }}"
+  loop_control:
+    label: "{{ item.name }}"
+  vars:
+    ks_profile: "{{ item.profile }}"
+    ks_host: "{{ item }}"
+
+- name: Find per-host Kickstarts
+  ansible.builtin.find:
+    paths: "{{ bootc_pxe_http_root }}/ks/hosts"
+    patterns: "*.ks"
+  register: __bootc_pxe_host_ks
+
+- name: Remove Kickstarts for hosts no longer in inventory
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: absent
+  loop: "{{ __bootc_pxe_host_ks.files }}"
+  loop_control:
+    label: "{{ item.path }}"
+  when: (item.path | basename | regex_replace('\.ks$', '')) not in (bootc_pxe_hosts | map(attribute='name') | list)

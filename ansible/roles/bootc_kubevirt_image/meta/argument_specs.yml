@@ -1,0 +1,25 @@
+---
+argument_specs:
+  main:
+    short_description: Import a bootc VM disk into OpenShift Virtualization as a golden DataSource
+    options:
+      bootc_kubevirt_namespace: {type: str}
+      bootc_kubevirt_name: {type: str}
+      bootc_kubevirt_version: {type: str, required: true}
+      bootc_kubevirt_storage_size: {type: str}
+      bootc_kubevirt_storage_class: {type: str}
+      bootc_kubevirt_source_type: {type: str, choices: [http, registry]}
+      bootc_kubevirt_source_url: {type: str, required: true}
+      bootc_kubevirt_cert_configmap: {type: str}
+      bootc_kubevirt_secret_ref: {type: str}
+      bootc_kubevirt_wait_timeout: {type: int}
+      bootc_kubevirt_create_vm: {type: bool}
+      bootc_kubevirt_vm_name: {type: str}
+      bootc_kubevirt_vm_namespace: {type: str}
+      bootc_kubevirt_vm_cpu: {type: int}
+      bootc_kubevirt_vm_memory: {type: str}
+      bootc_kubevirt_vm_user: {type: str}
+      bootc_kubevirt_vm_ssh_keys: {type: list, elements: str}
+      bootc_kubevirt_vm_registry_auth: {type: dict}
+      bootc_kubevirt_kubeconfig: {type: str}
+      bootc_kubevirt_context: {type: str}

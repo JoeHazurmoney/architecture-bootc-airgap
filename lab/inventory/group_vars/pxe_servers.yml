@@ -1,0 +1,46 @@
+---
+bootc_pxe_installer_release: "10.2"
+bootc_pxe_installer_name: AlmaLinux 10.2
+bootc_pxe_iso_path: "{{ lab_iso_path }}"
+bootc_pxe_server_ip: "{{ lab_pxe_ip }}"
+bootc_pxe_http_url: http://{{ lab_pxe_ip }}/bootc
+bootc_pxe_allowed_networks: ["{{ lab_net_cidr }}"]
+
+bootc_pxe_registry: "{{ lab_registry }}"
+bootc_pxe_images:
+  server:
+    repository: bootc/server
+    tag: stable
+  workstation:
+    repository: bootc/workstation
+    tag: stable
+bootc_pxe_registry_ca: "{{ lab_registry_ca }}"
+bootc_pxe_registry_auth: "{{ lab_registry_auth }}"
+bootc_pxe_ks_directive: ostreecontainer
+
+bootc_pxe_admin_user: labadmin
+bootc_pxe_admin_ssh_keys: "{{ [lab_admin_pubkey] if lab_admin_pubkey else [] }}"
+bootc_pxe_admin_password_hash: "{{ lab_admin_password | password_hash('sha512', lab_admin_password_salt) }}"
+
+# The lab switch is Private and isolated, so the PXE VM runs the only DHCP
+# there. lab_site.yml finds the interface that holds lab_pxe_ip.
+bootc_pxe_dhcp_mode: full
+bootc_pxe_dhcp_interface: "{{ lab_iface | default('eth1') }}"
+bootc_pxe_dhcp_range_start: 10.77.0.150
+bootc_pxe_dhcp_range_end: 10.77.0.199
+bootc_pxe_firewall_zone: internal
+
+bootc_pxe_hosts:
+  - name: bootc-lab-srv01
+    mac: "02:00:77:00:00:65"
+    profile: server
+    disk: sda
+    ip: 10.77.0.101
+    state: install
+  - name: bootc-lab-ws01
+    mac: "02:00:77:00:00:66"
+    profile: workstation
+    disk: sda
+    ip: 10.77.0.102
+    state: install
+    ks_directive: bootc          # exercises the newer Kickstart command too

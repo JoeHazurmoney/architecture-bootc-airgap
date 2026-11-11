@@ -1,0 +1,36 @@
+---
+- name: Check that the installer kernel, initrd, stage2 and Kickstarts are served over HTTP
+  ansible.builtin.uri:
+    url: "{{ item }}"
+    method: HEAD
+    status_code: 200
+  loop: >-
+    {{ [__bootc_pxe_installer_url ~ '/images/pxeboot/vmlinuz',
+        __bootc_pxe_installer_url ~ '/images/pxeboot/initrd.img',
+        __bootc_pxe_installer_url ~ '/images/install.img',
+        __bootc_pxe_installer_url ~ '/.treeinfo',
+        bootc_pxe_http_url ~ '/EFI/BOOT/grub.cfg',
+        bootc_pxe_http_url ~ '/EFI/BOOT/' ~ __bootc_pxe_efi_loader]
+       + (bootc_pxe_images.keys() | map('regex_replace', '^(.*)$', bootc_pxe_http_url ~ '/ks/\1.ks') | list) }}
+  when: bootc_pxe_manage_services | bool
+
+- name: Check that the TFTP boot loader is in place
+  ansible.builtin.stat:
+    path: "{{ __bootc_pxe_tftp_dir }}/EFI/BOOT/{{ __bootc_pxe_efi_loader }}"
+  register: __bootc_pxe_loader
+
+- name: Fail if the TFTP boot loader is missing
+  ansible.builtin.assert:
+    that: __bootc_pxe_loader.stat.exists
+    fail_msg: "{{ __bootc_pxe_tftp_dir }}/EFI/BOOT/{{ __bootc_pxe_efi_loader }} is missing."
+    quiet: true
+
+- name: Validate Kickstarts with ksvalidator
+  ansible.builtin.command:
+    argv: >-
+      {{ ['ksvalidator', '-v', bootc_pxe_ksvalidator_version, bootc_pxe_http_root ~ '/ks/' ~ item ~ '.ks'] }}
+  loop: >-
+    {{ bootc_pxe_images.keys() | list
+       + (bootc_pxe_hosts | map(attribute='name') | map('regex_replace', '^', 'hosts/') | list) }}
+  changed_when: false
+  when: bootc_pxe_validate_kickstarts | bool

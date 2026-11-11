@@ -1,0 +1,21 @@
+---
+# Derived paths. Not meant to be overridden.
+__bootc_pxe_installer_dir: "{{ bootc_pxe_http_root }}/installer/{{ bootc_pxe_installer_release }}"
+__bootc_pxe_installer_url: "{{ bootc_pxe_http_url }}/installer/{{ bootc_pxe_installer_release }}"
+__bootc_pxe_tftp_dir: "{{ bootc_pxe_tftp_root }}/{{ bootc_pxe_tftp_subdir }}"
+__bootc_pxe_efi_dirs:
+  - "{{ __bootc_pxe_tftp_dir }}/EFI/BOOT"
+  - "{{ bootc_pxe_http_root }}/EFI/BOOT"
+__bootc_pxe_iso_mount: /run/bootc-pxe-iso
+__bootc_pxe_http_host: "{{ bootc_pxe_http_url | urlsplit('netloc') }}"
+__bootc_pxe_http_path: "{{ bootc_pxe_http_url | urlsplit('path') }}"
+__bootc_pxe_efi_loader: "{{ 'BOOTX64.EFI' if bootc_pxe_secure_boot else 'grubx64.efi' }}"
+__bootc_pxe_packages_base:
+  - httpd
+  - tftp-server
+  - policycoreutils-python-utils
+__bootc_pxe_packages_dnsmasq:
+  - dnsmasq
+__bootc_pxe_packages_bios:
+  - grub2-pc-modules
+  - grub2-tools-extra

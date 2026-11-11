@@ -1,0 +1,10 @@
+---
+bootc_build_registry: "{{ bootc_registry }}"
+bootc_build_release: "{{ bootc_release }}"
+# Red Hat's base, mirrored into the internal registry with oc-mirror / skopeo
+bootc_build_base_image: "{{ bootc_registry }}/rhel10/rhel-bootc:10.2"
+bootc_build_bib_image: "{{ bootc_registry }}/rhel10/bootc-image-builder:10.2"
+bootc_build_registry_ca: "{{ bootc_registry_ca }}"
+bootc_build_registry_auth: "{{ vault_bootc_build_push_auth | default(bootc_registry_auth) }}"
+bootc_build_args:
+  NTP_SERVERS: ntp1.example.internal ntp2.example.internal

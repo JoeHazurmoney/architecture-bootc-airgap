@@ -1,0 +1,24 @@
+---
+- name: Install build tools (dnf)
+  ansible.builtin.dnf:
+    name: "{{ ['podman', 'skopeo', 'jq', 'rsync'] + (['qemu-img'] if bootc_build_disk_convert_vhdx else []) }}"
+    state: present
+
+- name: Write the registry auth file for podman and skopeo
+  when: bootc_build_registry_auth | length > 0
+  block:
+    - name: Create the auth file directory
+      ansible.builtin.file:
+        path: "{{ bootc_build_authfile | dirname }}"
+        state: directory
+        mode: "0700"
+
+    - name: Write the auth file
+      ansible.builtin.copy:
+        dest: "{{ bootc_build_authfile }}"
+        content: "{{ bootc_build_registry_auth | to_nice_json }}\n"
+        mode: "0600"
+      no_log: true
+
+- name: Run the action
+  ansible.builtin.include_tasks: "{{ bootc_build_action }}.yml"

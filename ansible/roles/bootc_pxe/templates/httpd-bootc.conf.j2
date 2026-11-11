@@ -1,0 +1,19 @@
+# Managed by Ansible (role bootc_pxe). Do not edit on the server.
+Alias {{ __bootc_pxe_http_path }} {{ bootc_pxe_http_root }}
+
+<Directory {{ bootc_pxe_http_root }}>
+    Options Indexes FollowSymLinks
+    AllowOverride None
+    Require all granted
+</Directory>
+
+# Registry CA and pull secret: installer networks only, no listing.
+<Directory {{ bootc_pxe_http_root }}/trust>
+    Options None
+    AllowOverride None
+    Require ip {{ bootc_pxe_allowed_networks | join(' ') }}
+</Directory>
+
+<FilesMatch "^\.bootc-pxe-media$">
+    Require all denied
+</FilesMatch>

@@ -1,0 +1,92 @@
+{#- Inputs: ks_profile (str), ks_host (dict, empty for boot-menu installs) -#}
+{%- set img = bootc_pxe_images[ks_profile] -%}
+{%- set repo = bootc_pxe_registry ~ '/' ~ img.repository -%}
+{%- set tag = ks_host.image_tag | default(img.tag | default('stable')) -%}
+{%- set digest = ks_host.image_digest | default(img.digest | default('')) -%}
+{%- set track_ref = repo ~ ':' ~ tag -%}
+{%- set install_ref = (repo ~ '@' ~ digest) if digest else track_ref -%}
+{%- set directive = ks_host.ks_directive | default(bootc_pxe_ks_directive) -%}
+{%- set disk = ks_host.disk | default(bootc_pxe_default_disk) -%}
+# Managed by Ansible (role bootc_pxe). Do not edit on the server.
+# bootc image-mode install: no %packages. The OS comes from the container image.
+# Profile: {{ ks_profile }}{% if ks_host %}   Host: {{ ks_host.name }} ({{ ks_host.mac | lower }}){% endif %}
+
+# Image:   {{ install_ref }}
+text
+lang {{ bootc_pxe_ks_lang }}
+keyboard {{ bootc_pxe_ks_keyboard }}
+timezone {{ bootc_pxe_ks_timezone }} --utc
+network --bootproto=dhcp --device=link --activate{% if ks_host %} --hostname={{ ks_host.name }}{% endif %}
+
+
+# --- Storage ---------------------------------------------------------------
+{% if disk %}
+ignoredisk --only-use={{ disk }}
+{% endif %}
+zerombr
+clearpart --all --initlabel{% if disk %} --drives={{ disk }}{% endif %}
+
+{% if bootc_pxe_partitioning | length > 0 %}
+{{ bootc_pxe_partitioning | trim }}
+{% else %}
+reqpart --add-boot
+part / --grow --fstype=xfs
+{% endif %}
+
+# --- The OS: pull the bootc image straight onto disk ------------------------
+{% if directive == 'bootc' %}
+bootc --source-imgref=registry:{{ install_ref }}{% if digest %} --target-imgref={{ track_ref }}{% endif %}
+
+{% else %}
+ostreecontainer --url={{ install_ref }} --transport=registry{% if not bootc_pxe_signature_verification %} --no-signature-verification{% endif %}
+
+{% endif %}
+
+# --- Accounts (Day-1 identity; everything else is in the image) -------------
+rootpw --lock
+user --name={{ bootc_pxe_admin_user }} --groups=wheel{% if bootc_pxe_admin_password_hash %} --iscrypted --password={{ bootc_pxe_admin_password_hash }}{% else %} --lock{% endif %}
+
+{% for key in bootc_pxe_admin_ssh_keys %}
+sshkey --username={{ bootc_pxe_admin_user }} "{{ key | trim }}"
+{% endfor %}
+
+{% if bootc_pxe_reboot_after_install %}
+reboot
+{% endif %}
+
+# --- Installer environment: trust the internal registry --------------------
+%pre --log=/tmp/bootc-ks-pre.log
+set -eux
+{% if bootc_pxe_registry_ca | length > 0 %}
+mkdir -p "/etc/containers/certs.d/{{ bootc_pxe_registry }}"
+curl -fsS "{{ bootc_pxe_http_url }}/trust/registry-ca.crt" -o "/etc/containers/certs.d/{{ bootc_pxe_registry }}/ca.crt"
+{% endif %}
+{% if bootc_pxe_registry_auth | length > 0 %}
+mkdir -p /etc/ostree
+curl -fsS "{{ bootc_pxe_http_url }}/trust/auth.json" -o /etc/ostree/auth.json
+chmod 0600 /etc/ostree/auth.json
+{% endif %}
+%end
+
+# --- Installed system --------------------------------------------------------
+%post --log=/root/bootc-ks-post.log
+set -eux
+{% if bootc_pxe_registry_auth | length > 0 %}
+# Pull secret for later `bootc upgrade` (the registry CA is baked into the image)
+mkdir -p /etc/ostree
+curl -fsS "{{ bootc_pxe_http_url }}/trust/auth.json" -o /etc/ostree/auth.json
+chmod 0600 /etc/ostree/auth.json
+{% endif %}
+{% if not bootc_pxe_admin_password_hash %}
+# Key-only admin account: allow sudo without a password
+echo '{{ bootc_pxe_admin_user }} ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/90-{{ bootc_pxe_admin_user }}
+chmod 0440 /etc/sudoers.d/90-{{ bootc_pxe_admin_user }}
+{% endif %}
+{% if bootc_pxe_disable_cloud_init_on_metal %}
+# Bare metal gets Day-1 from Kickstart, so cloud-init stays off here
+touch /etc/cloud/cloud-init.disabled
+{% endif %}
+{% if bootc_pxe_ks_extra_post | length > 0 %}
+{{ bootc_pxe_ks_extra_post | trim }}
+{% endif %}
+%end

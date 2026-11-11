@@ -1,0 +1,16 @@
+---
+argument_specs:
+  main:
+    short_description: Day-2 bootc operations with reboot and health verification
+    options:
+      bootc_lifecycle_action:
+        type: str
+        choices: [status, upgrade, switch, rollback]
+        default: status
+      bootc_lifecycle_switch_ref: {type: str, default: ""}
+      bootc_lifecycle_expected_digest: {type: str, default: ""}
+      bootc_lifecycle_reboot: {type: bool, default: true}
+      bootc_lifecycle_force_reboot: {type: bool, default: false}
+      bootc_lifecycle_reboot_timeout: {type: int, default: 1800}
+      bootc_lifecycle_health_unit: {type: str, default: bootc-health-check.service}
+      bootc_lifecycle_health_timeout: {type: int, default: 900}

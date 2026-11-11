@@ -1,0 +1,14 @@
+---
+# Move hosts to another image reference: a channel (:testing), another profile,
+# or an exact digest (strict pinning).
+#   ansible-playbook playbooks/day2_switch.yml -l canaries \
+#     -e bootc_lifecycle_switch_ref=registry:8443/bootc/server:testing
+- name: Switch bootc hosts to another image
+  hosts: bootc_fleet
+  gather_facts: false
+  serial: "{{ day2_serial | default([1, '25%']) }}"
+  max_fail_percentage: 0
+  roles:
+    - role: bootc_lifecycle
+      vars:
+        bootc_lifecycle_action: switch

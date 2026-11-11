@@ -1,0 +1,9 @@
+# bootc-image-builder customizations for VM disk images (qcow2, vmdk, ami).
+# No users, keys or secrets here: cloud-init does Day-1 for VMs
+# (KubeVirt cloudInitNoCloud, seed ISO, VMware guestinfo).
+[[customizations.filesystem]]
+mountpoint = "/"
+minsize = "40 GiB"
+
+[customizations.kernel]
+append = "console=tty0 console=ttyS0,115200n8"

@@ -1,0 +1,30 @@
+---
+# Golden image chain: bootc qcow2 -> CDI DataVolume (PVC) -> DataSource.
+# VMs clone the DataSource and get Day-1 settings from cloudInitNoCloud.
+bootc_kubevirt_namespace: openshift-virtualization-os-images
+bootc_kubevirt_name: bootc-server                  # DataSource name (stable; VMs reference it)
+bootc_kubevirt_version: ""                         # image version, e.g. 10.2-20261110.1530 (required)
+bootc_kubevirt_storage_size: 45Gi
+bootc_kubevirt_storage_class: ""                   # "" = cluster default
+# http: CDI pulls disk.qcow2 from a URL (e.g. the PXE/HTTP host)
+# registry: CDI pulls a containerDisk image (images/containerdisk/Containerfile)
+bootc_kubevirt_source_type: http
+bootc_kubevirt_source_url: ""                      # http(s)://.../disk.qcow2 or docker://registry/repo:tag
+bootc_kubevirt_cert_configmap: ""                  # ConfigMap with the internal CA (ca.pem) for the source
+bootc_kubevirt_secret_ref: ""                      # Secret with registry/HTTP credentials
+bootc_kubevirt_wait_timeout: 1800
+
+# Optional example VM cloned from the DataSource
+bootc_kubevirt_create_vm: false
+bootc_kubevirt_vm_name: bootc-vm-01
+bootc_kubevirt_vm_namespace: default
+bootc_kubevirt_vm_cpu: 2
+bootc_kubevirt_vm_memory: 4Gi
+bootc_kubevirt_vm_user: sysadmin
+bootc_kubevirt_vm_ssh_keys: []
+# auth.json content for `bootc upgrade` from the internal registry (vault it)
+bootc_kubevirt_vm_registry_auth: {}
+
+# Connection (kubernetes.core): kubeconfig / context, or in-cluster
+bootc_kubevirt_kubeconfig: "{{ lookup('ansible.builtin.env', 'KUBECONFIG') | default(omit, true) }}"
+bootc_kubevirt_context: ""

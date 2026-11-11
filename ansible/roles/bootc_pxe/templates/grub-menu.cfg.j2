@@ -1,0 +1,24 @@
+{% import '_kernel.j2' as k with context %}
+# Managed by Ansible (role bootc_pxe). Do not edit on the server.
+# Full boot menu for unknown hosts. Defaults to the local disk, so a stray
+# network boot never wipes anything.
+set timeout={{ bootc_pxe_menu_timeout }}
+set default="local"
+
+menuentry 'Boot from local disk' --id local {
+  exit
+}
+
+{% for profile, img in bootc_pxe_images.items() %}
+menuentry 'Install bootc {{ profile }} ({{ img.repository }}:{{ img.tag | default(img.digest | default("")) }}) - ERASES DISK' --id install-{{ profile }} {
+  echo 'Loading {{ bootc_pxe_installer_name }} installer kernel...'
+  linux {{ k.kpath }}/vmlinuz {{ k.kargs }} inst.ks={{ bootc_pxe_http_url }}/ks/{{ profile }}.ks
+  echo 'Loading initrd (can take a minute)...'
+  initrd {{ k.kpath }}/initrd.img
+}
+
+{% endfor %}
+menuentry '{{ bootc_pxe_installer_name }} installer rescue shell' --id rescue {
+  linux {{ k.kpath }}/vmlinuz {{ k.kargs }} inst.rescue
+  initrd {{ k.kpath }}/initrd.img
+}

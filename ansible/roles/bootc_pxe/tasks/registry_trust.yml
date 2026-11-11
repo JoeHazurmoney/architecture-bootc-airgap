@@ -1,0 +1,34 @@
+---
+# The installer fetches these in %pre, and %post writes the pull secret onto
+# the installed host so `bootc upgrade` works afterwards. /bootc/trust only
+# answers bootc_pxe_allowed_networks (see httpd-bootc.conf.j2).
+- name: Publish the registry CA
+  ansible.builtin.copy:
+    dest: "{{ bootc_pxe_http_root }}/trust/registry-ca.crt"
+    content: "{{ bootc_pxe_registry_ca | trim }}\n"
+    owner: root
+    group: apache
+    mode: "0640"
+  when: bootc_pxe_registry_ca | length > 0
+
+- name: Remove the registry CA when none is configured
+  ansible.builtin.file:
+    path: "{{ bootc_pxe_http_root }}/trust/registry-ca.crt"
+    state: absent
+  when: bootc_pxe_registry_ca | length == 0
+
+- name: Publish the registry pull secret (auth.json)
+  ansible.builtin.copy:
+    dest: "{{ bootc_pxe_http_root }}/trust/auth.json"
+    content: "{{ bootc_pxe_registry_auth | to_nice_json }}\n"
+    owner: root
+    group: apache
+    mode: "0640"
+  no_log: true
+  when: bootc_pxe_registry_auth | length > 0
+
+- name: Remove the pull secret when none is configured
+  ansible.builtin.file:
+    path: "{{ bootc_pxe_http_root }}/trust/auth.json"
+    state: absent
+  when: bootc_pxe_registry_auth | length == 0

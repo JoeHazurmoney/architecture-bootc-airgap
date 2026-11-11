@@ -1,0 +1,80 @@
+---
+argument_specs:
+  main:
+    short_description: PXE / UEFI HTTP boot server for bootc image installs
+    description:
+      - Extracts the installer kernel, initrd, stage2 and Secure Boot shim from a RHEL 10 (or AlmaLinux 10) boot ISO.
+      - Serves them over TFTP and HTTP, renders GRUB menus (with per-MAC zero-touch entries) and Kickstarts that install a bootc image.
+      - Renders DHCP snippets for the existing DHCP service, or runs dnsmasq in proxy or full mode.
+    options:
+      bootc_pxe_installer_release: {type: str, required: true}
+      bootc_pxe_installer_name: {type: str}
+      bootc_pxe_boot_media_source: {type: str, choices: [iso, dir]}
+      bootc_pxe_iso_path: {type: path}
+      bootc_pxe_media_dir: {type: str}
+      bootc_pxe_server_ip: {type: str, required: true}
+      bootc_pxe_http_url: {type: str, required: true}
+      bootc_pxe_http_root: {type: path}
+      bootc_pxe_tftp_root: {type: path}
+      bootc_pxe_tftp_subdir: {type: str}
+      bootc_pxe_kernel_transport: {type: str, choices: [http, tftp]}
+      bootc_pxe_allowed_networks: {type: list, elements: str}
+      bootc_pxe_registry: {type: str, required: true}
+      bootc_pxe_images:
+        type: dict
+        required: true
+        description: Profile name -> {repository, tag | digest}.
+      bootc_pxe_ks_directive: {type: str, choices: [ostreecontainer, bootc]}
+      bootc_pxe_signature_verification: {type: bool}
+      bootc_pxe_registry_ca: {type: str}
+      bootc_pxe_registry_auth: {type: dict}
+      bootc_pxe_ks_lang: {type: str}
+      bootc_pxe_ks_keyboard: {type: str}
+      bootc_pxe_ks_timezone: {type: str}
+      bootc_pxe_default_disk: {type: str}
+      bootc_pxe_partitioning: {type: str}
+      bootc_pxe_admin_user: {type: str}
+      bootc_pxe_admin_ssh_keys: {type: list, elements: str}
+      bootc_pxe_admin_password_hash: {type: str, no_log: true}
+      bootc_pxe_disable_cloud_init_on_metal: {type: bool}
+      bootc_pxe_ks_extra_post: {type: str}
+      bootc_pxe_reboot_after_install: {type: bool}
+      bootc_pxe_kernel_args: {type: str}
+      bootc_pxe_menu_timeout: {type: int}
+      bootc_pxe_secure_boot: {type: bool}
+      bootc_pxe_bios_support: {type: bool}
+      bootc_pxe_hosts:
+        type: list
+        elements: dict
+        options:
+          name: {type: str, required: true}
+          mac: {type: str, required: true}
+          profile: {type: str, required: true}
+          disk: {type: str}
+          state: {type: str, choices: [install, reinstall, local], default: install}
+          ip: {type: str}
+          image_tag: {type: str}
+          image_digest: {type: str}
+          ks_directive: {type: str, choices: [ostreecontainer, bootc]}
+      bootc_pxe_dhcp_mode: {type: str, choices: [snippets, proxy, full]}
+      bootc_pxe_dhcp_interface: {type: str}
+      bootc_pxe_dhcp_range_start: {type: str}
+      bootc_pxe_dhcp_range_end: {type: str}
+      bootc_pxe_dhcp_netmask: {type: str}
+      bootc_pxe_dhcp_lease_time: {type: str}
+      bootc_pxe_dhcp_router: {type: str}
+      bootc_pxe_dhcp_dns: {type: list, elements: str}
+      bootc_pxe_proxy_dhcp_network: {type: str}
+      bootc_pxe_snippets_dir: {type: path}
+      bootc_pxe_fetch_snippets_to: {type: str}
+      bootc_pxe_manage_firewall: {type: bool}
+      bootc_pxe_firewall_zone: {type: str}
+      bootc_pxe_manage_selinux: {type: bool}
+      bootc_pxe_manage_services: {type: bool}
+      bootc_pxe_validate_kickstarts: {type: bool}
+      bootc_pxe_ksvalidator_version: {type: str}
+      bootc_pxe_render_dir: {type: str}
+  render:
+    short_description: Render Kickstarts, GRUB menus and DHCP snippets to a control-node directory (no server changes)
+    options:
+      bootc_pxe_render_dir: {type: str, required: true}

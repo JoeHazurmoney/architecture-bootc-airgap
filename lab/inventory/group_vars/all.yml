@@ -1,0 +1,61 @@
+---
+# Lab secrets are generated on first use into lab/.lab-secrets/ (git-ignored):
+# SSH key (made by lab/prepare_pxe_vm.py), registry password, lab CA, admin password.
+lab_secrets_dir: "{{ inventory_dir }}/../.lab-secrets"
+
+lab_net_cidr: 10.77.0.0/24
+lab_pxe_ip: 10.77.0.10
+lab_registry: "{{ lab_pxe_ip }}:5000"
+lab_registry_user: bootc
+lab_registry_password: "{{ lookup('ansible.builtin.password', lab_secrets_dir ~ '/registry-password', length=24, chars=['ascii_letters', 'digits']) }}"
+lab_registry_auth:
+  auths:
+    "{{ lab_registry }}":
+      auth: "{{ (lab_registry_user ~ ':' ~ lab_registry_password) | b64encode }}"
+lab_registry_ca: "{{ lookup('ansible.builtin.file', lab_secrets_dir ~ '/lab-ca.crt', errors='ignore') | default('', true) }}"
+
+lab_admin_pubkey: "{{ lookup('ansible.builtin.file', lab_secrets_dir ~ '/id_ed25519.pub', errors='ignore') | default('', true) }}"
+# Console/GDM password for labadmin on lab clients (printed by lab_site.yml)
+lab_admin_password: "{{ lookup('ansible.builtin.password', lab_secrets_dir ~ '/labadmin-password', length=16, chars=['ascii_letters', 'digits']) }}"
+lab_admin_password_salt: "{{ lookup('ansible.builtin.password', lab_secrets_dir ~ '/labadmin-salt', length=16, chars=['ascii_letters', 'digits']) }}"
+
+# Base images "mirrored" into the lab registry, the way oc-mirror/skopeo
+# would carry them across the airgap. v1.0 is built on the older base and the
+# patch (v1.1) on the newer one, so the patch shows a real RPM diff.
+lab_base_old: 10.2-20260924
+lab_base_new: 10.2-20261110
+lab_mirror_images:
+  - src: quay.io/almalinuxorg/almalinux-bootc:{{ lab_base_old }}
+    dest: mirror/almalinux-bootc:{{ lab_base_old }}
+  - src: quay.io/almalinuxorg/almalinux-bootc:{{ lab_base_new }}
+    dest: mirror/almalinux-bootc:{{ lab_base_new }}
+  - src: quay.io/centos-bootc/bootc-image-builder@sha256:dab86ee6b46dcade411b37f4e70b07d93b6a06da0dbfec6fe89247a220e0d9f8
+    dest: mirror/bootc-image-builder:lab
+lab_registry_image: docker.io/library/registry:3.1.2@sha256:38907510915c3f1604c7e83d6ab602ab3020d092f73bdaed8696773693ff768c
+
+# Internal RPM mirror for image builds (the airgap's Satellite/Pulp stand-in).
+# Packages the Containerfiles install; keep in sync with images/*/Containerfile.
+lab_repo_dir: /var/www/bootc/repos/lab
+lab_repo_url: http://{{ lab_pxe_ip }}/bootc/repos/lab
+lab_repo_packages:
+  - cloud-init
+  - qemu-guest-agent
+  - hyperv-daemons
+  - linux-firmware
+  - ipmitool
+  - chrony
+  - jq
+  - gdm
+  - gnome-shell
+  - gnome-session-wayland-session
+  - gnome-control-center
+  - ptyxis
+  - nautilus
+  - gnome-text-editor
+  - gnome-system-monitor
+  - xdg-user-dirs-gtk
+  - firefox
+
+lab_iso_url: https://repo.almalinux.org/almalinux/10/isos/x86_64/AlmaLinux-10.2-x86_64-boot.iso
+lab_iso_checksum: sha256:b3f865468075bcada8f208d830289302c67529789d668041d24e8d6fc697ba6a
+lab_iso_path: /srv/iso/AlmaLinux-10.2-x86_64-boot.iso

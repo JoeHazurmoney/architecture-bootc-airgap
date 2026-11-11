@@ -1,0 +1,7 @@
+{#- Shared: where GRUB loads the installer kernel/initrd from, plus common args -#}
+{%- if bootc_pxe_kernel_transport == 'http' -%}
+{%- set kpath = '(http,' ~ __bootc_pxe_http_host ~ ')' ~ __bootc_pxe_http_path ~ '/installer/' ~ bootc_pxe_installer_release ~ '/images/pxeboot' -%}
+{%- else -%}
+{%- set kpath = '(tftp,' ~ bootc_pxe_server_ip ~ ')/' ~ bootc_pxe_tftp_subdir ~ '/installer/' ~ bootc_pxe_installer_release -%}
+{%- endif -%}
+{%- set kargs = 'ip=dhcp inst.stage2=' ~ __bootc_pxe_installer_url ~ ((' ' ~ bootc_pxe_kernel_args) if bootc_pxe_kernel_args else '') -%}

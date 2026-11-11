@@ -1,0 +1,40 @@
+---
+- name: Create HTTP directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - "{{ bootc_pxe_http_root }}"
+    - "{{ bootc_pxe_http_root }}/installer"
+    - "{{ bootc_pxe_http_root }}/EFI/BOOT"
+    - "{{ bootc_pxe_http_root }}/EFI/BOOT/hosts"
+    - "{{ bootc_pxe_http_root }}/ks"
+    - "{{ bootc_pxe_http_root }}/ks/hosts"
+
+- name: Create the restricted trust directory
+  ansible.builtin.file:
+    path: "{{ bootc_pxe_http_root }}/trust"
+    state: directory
+    owner: root
+    group: apache
+    mode: "0750"
+
+- name: Configure httpd for /bootc
+  ansible.builtin.template:
+    src: httpd-bootc.conf.j2
+    dest: /etc/httpd/conf.d/bootc-pxe.conf
+    owner: root
+    group: root
+    mode: "0644"
+    validate: /usr/sbin/httpd -t -f /etc/httpd/conf/httpd.conf -C "Include %s"
+  notify: Restart httpd
+
+- name: Enable httpd
+  ansible.builtin.systemd_service:
+    name: httpd.service
+    enabled: true
+    state: started
+  when: bootc_pxe_manage_services | bool

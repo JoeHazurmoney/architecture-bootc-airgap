@@ -1,0 +1,19 @@
+---
+galaxy_info:
+  role_name: bootc_pxe
+  namespace: bootc_airgap
+  author: platform-team
+  description: PXE / UEFI HTTP boot server that installs RHEL 10 bootc images with Kickstart
+  license: Apache-2.0
+  min_ansible_version: "2.16"
+  platforms:
+    - name: EL
+      versions:
+        - "9"
+        - "10"
+  galaxy_tags:
+    - bootc
+    - pxe
+    - kickstart
+    - rhel
+dependencies: []

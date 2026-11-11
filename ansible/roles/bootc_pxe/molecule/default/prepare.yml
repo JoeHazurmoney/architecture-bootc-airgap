@@ -1,0 +1,40 @@
+---
+- name: Prepare
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: Python, sudo (become) and iproute (dummy NIC)
+      ansible.builtin.raw: dnf -y install python3 sudo iproute
+      changed_when: false
+
+    - name: Dummy lab interface for dnsmasq to bind to
+      ansible.builtin.shell:
+        executable: /bin/bash
+        cmd: |
+          set -o pipefail
+          ip link show bootc0 >/dev/null 2>&1 || ip link add bootc0 type dummy
+          ip addr show bootc0 | grep -q 10.77.0.10 || ip addr add 10.77.0.10/24 dev bootc0
+          ip link set bootc0 up
+      changed_when: false
+
+    - name: Fake installer tree (stands in for the boot ISO)
+      ansible.builtin.file:
+        path: "/srv/fake-media/{{ item }}"
+        state: directory
+        mode: "0755"
+      loop: [images/pxeboot, EFI/BOOT]
+
+    - name: Fake installer files
+      ansible.builtin.copy:
+        dest: "/srv/fake-media/{{ item }}"
+        content: "fake {{ item }}\n"
+        mode: "0644"
+      loop:
+        - images/pxeboot/vmlinuz
+        - images/pxeboot/initrd.img
+        - images/install.img
+        - .treeinfo
+        - EFI/BOOT/BOOTX64.EFI
+        - EFI/BOOT/grubx64.efi
+        - EFI/BOOT/mmx64.efi
+        - EFI/BOOT/grub.cfg

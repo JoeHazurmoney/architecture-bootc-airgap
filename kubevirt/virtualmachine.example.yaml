@@ -1,0 +1,72 @@
+apiVersion: kubevirt.io/v1
+kind: VirtualMachine
+metadata:
+  name: bootc-vm-01
+  namespace: <your-namespace>
+  labels:
+    app.kubernetes.io/part-of: bootc
+spec:
+  runStrategy: Always
+  dataVolumeTemplates:
+    - metadata:
+        name: bootc-vm-01-root
+      spec:
+        sourceRef:
+          kind: DataSource
+          name: bootc-server
+          namespace: openshift-virtualization-os-images
+        storage:
+          resources:
+            requests:
+              storage: 45Gi
+  template:
+    metadata:
+      labels:
+        kubevirt.io/domain: bootc-vm-01
+    spec:
+      domain:
+        cpu:
+          cores: 2
+        memory:
+          guest: 4Gi
+        firmware:
+          bootloader:
+            efi:
+              secureBoot: false
+        devices:
+          disks:
+            - name: rootdisk
+              disk:
+                bus: virtio
+            - name: cloudinitdisk
+              disk:
+                bus: virtio
+          interfaces:
+            - name: default
+              masquerade: {}
+      networks:
+        - name: default
+          pod: {}
+      volumes:
+        - name: rootdisk
+          dataVolume:
+            name: bootc-vm-01-root
+        - name: cloudinitdisk
+          cloudInitNoCloud:
+            # Day-1 only: identity and secrets. The OS itself comes from the image.
+            # Put the pull secret in a Secret (userDataSecretRef) in real use.
+            userData: |
+              #cloud-config
+              hostname: bootc-vm-01
+              users:
+                - name: sysadmin
+                  groups: [wheel]
+                  sudo: "ALL=(ALL) NOPASSWD:ALL"
+                  lock_passwd: true
+                  ssh_authorized_keys:
+                    - <ssh-ed25519 AAAA... admin@example>
+              write_files:
+                - path: /etc/ostree/auth.json
+                  permissions: "0600"
+                  content: |
+                    {"auths": {"<registry>": {"auth": "<base64 user:token>"}}}

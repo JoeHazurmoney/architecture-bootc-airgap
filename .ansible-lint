@@ -1,0 +1,11 @@
+---
+profile: production
+exclude_paths:
+  - .git/
+  - .github/
+  - kubevirt/
+  - images/
+  - lab/cloud-init/
+mock_roles: []
+skip_list:
+  - var-naming[no-role-prefix]  # lab/ playbooks set role variables from inventory, which is intended

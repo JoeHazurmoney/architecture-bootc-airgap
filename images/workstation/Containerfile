@@ -1,0 +1,56 @@
+# syntax=docker/dockerfile:1
+# ---------------------------------------------------------------------------
+# Workstation image: GNOME desktop layered on the server image. Physical
+# workstations (PXE) and workstation VMs (bootc-image-builder) both use it.
+#
+#   podman build -f images/workstation/Containerfile \
+#     --build-arg BASE_IMAGE=<registry>/bootc/server:<ver> \
+#     -t <registry>/bootc/workstation:<ver> images/
+# ---------------------------------------------------------------------------
+ARG BASE_IMAGE=localhost/bootc/server:dev
+FROM ${BASE_IMAGE}
+
+ARG IMAGE_VERSION=dev
+ARG GIT_SHA=unknown
+ARG APPLY_UPDATES=false
+ARG EXTRA_PACKAGES=""
+
+# Airgap-safe desktop: no Flatpak remotes, no GNOME Software online sources.
+RUN --mount=type=bind,source=repos,target=/run/extra-repos \
+    set -eux; \
+    opts=""; \
+    if ls /run/extra-repos/*.repo >/dev/null 2>&1; then opts="--setopt=reposdir=/run/extra-repos"; fi; \
+    if [ "${APPLY_UPDATES}" = "true" ]; then dnf -y ${opts} upgrade; fi; \
+    dnf -y ${opts} install \
+        gdm \
+        gnome-shell \
+        gnome-session-wayland-session \
+        gnome-control-center \
+        ptyxis \
+        nautilus \
+        gnome-text-editor \
+        gnome-system-monitor \
+        xdg-user-dirs-gtk \
+        firefox \
+        ${EXTRA_PACKAGES}; \
+    dnf clean all; \
+    rm -rf /var/cache/dnf /var/lib/dnf /var/log/dnf* /var/log/hawkey.log /run/cloud-init /var/lib/cloud /var/cache/ldconfig /var/cache/ibus /run/gdm /run/tuned
+
+COPY workstation/rootfs/ /
+
+# Workstations stage updates on a timer; they apply at the user's next reboot.
+RUN set -eux; \
+    chmod 0644 /usr/lib/systemd/system/bootc-fetch-apply-updates.service.d/*.conf \
+               /usr/lib/systemd/system/bootc-fetch-apply-updates.timer.d/*.conf; \
+    chmod 0755 /usr/lib/bootc-health.d/*.sh; \
+    systemctl set-default graphical.target; \
+    systemctl enable gdm.service; \
+    systemctl enable bootc-fetch-apply-updates.timer; \
+    printf 'IMAGE_VERSION=%s\nGIT_SHA=%s\nPROFILE=workstation\n' "${IMAGE_VERSION}" "${GIT_SHA}" > /usr/lib/bootc-image-release
+
+LABEL org.opencontainers.image.title="bootc-workstation" \
+      org.opencontainers.image.version="${IMAGE_VERSION}" \
+      org.opencontainers.image.revision="${GIT_SHA}" \
+      org.opencontainers.image.description="Unified bootc GNOME workstation image"
+
+RUN bootc container lint

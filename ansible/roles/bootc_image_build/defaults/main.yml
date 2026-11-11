@@ -1,0 +1,48 @@
+---
+# build | promote | disk
+bootc_build_action: build
+
+# Where the images/ directory is copied to and built from on the build host
+bootc_build_workdir: /var/lib/bootc-build
+bootc_build_images_src: "{{ role_path }}/../../../images/"
+bootc_build_git_sha: "{{ lookup('ansible.builtin.pipe', 'git -C ' ~ role_path ~ ' rev-parse --short HEAD 2>/dev/null || echo unknown') }}"
+
+# Base image, by tag or digest, from the internal mirror registry
+bootc_build_base_image: registry.redhat.io/rhel10/rhel-bootc:10.2
+bootc_build_registry: registry.example.internal:5000
+bootc_build_release: "10.2"
+# Leave empty to generate <release>-<YYYYMMDD>.<HHMM> (UTC)
+bootc_build_version: ""
+bootc_build_profiles:
+  - name: server
+    repository: bootc/server
+    containerfile: base/Containerfile
+  - name: workstation
+    repository: bootc/workstation
+    containerfile: workstation/Containerfile
+    from_profile: server
+# Extra --build-arg values for every image, e.g. {APPLY_UPDATES: "true", NTP_SERVERS: "ntp1 ntp2"}
+bootc_build_args: {}
+# PEM text baked into the image's trust store (the internal registry CA)
+bootc_build_registry_ca: ""
+# auth.json used by podman/skopeo on the build host (REGISTRY_AUTH_FILE)
+bootc_build_authfile: /etc/bootc-build/auth.json
+bootc_build_registry_auth: {}
+
+# Channels: builds land on testing; promote copies a tested digest to stable
+bootc_build_channel: testing
+bootc_build_push: true
+
+# promote
+bootc_build_promote_from: testing
+bootc_build_promote_to: stable
+promote_rollback: false
+
+# disk: bootc-image-builder
+bootc_build_bib_image: registry.redhat.io/rhel10/bootc-image-builder:10.2
+bootc_build_disk_profile: server
+bootc_build_disk_tag: stable
+bootc_build_disk_types: [qcow2]
+bootc_build_disk_rootfs: xfs
+bootc_build_disk_convert_vhdx: false
+bootc_build_output_dir: /var/lib/bootc-build/output

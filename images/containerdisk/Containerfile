@@ -1,0 +1,6 @@
+# Wraps a bootc-image-builder qcow2 as a KubeVirt containerDisk, so CDI can
+# import it from the registry (DataVolume source "registry") instead of HTTP.
+#   cp output/qcow2/disk.qcow2 images/containerdisk/disk.qcow2
+#   podman build -t <registry>/bootc/server-disk:<ver> images/containerdisk/
+FROM scratch
+ADD --chown=107:107 disk.qcow2 /disk/

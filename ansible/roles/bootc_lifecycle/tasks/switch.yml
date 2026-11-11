@@ -1,0 +1,27 @@
+---
+# Move a host to another image reference: another channel (:testing), another
+# profile, or an exact digest (strict pinning).
+- name: Require a target image reference
+  ansible.builtin.assert:
+    that: bootc_lifecycle_switch_ref | length > 0
+    fail_msg: Set bootc_lifecycle_switch_ref (e.g. registry:5000/bootc/server:testing).
+    quiet: true
+
+- name: Stage the new image reference (bootc switch)
+  ansible.builtin.command:
+    argv: [bootc, switch, --quiet, "{{ bootc_lifecycle_switch_ref }}"]
+  register: __bootc_switch
+  changed_when: true
+  when: bootc_lifecycle_switch_ref != bootc_lifecycle_state.booted_ref
+  become: true
+
+- name: Read bootc status (after switch)
+  ansible.builtin.include_tasks: status.yml
+
+- name: Reboot into the new image and verify
+  ansible.builtin.include_tasks: reboot_and_verify.yml
+  vars:
+    __bootc_target_digest: "{{ bootc_lifecycle_state.staged_digest }}"
+  when:
+    - bootc_lifecycle_state.staged_digest | length > 0
+    - bootc_lifecycle_reboot | bool

@@ -1,0 +1,30 @@
+---
+argument_specs:
+  main:
+    short_description: Build, promote and roll back bootc images; build VM disks
+    options:
+      bootc_build_action: {type: str, choices: [build, promote, disk], default: build}
+      bootc_build_workdir: {type: path}
+      bootc_build_images_src: {type: str}
+      bootc_build_git_sha: {type: str}
+      bootc_build_base_image: {type: str, required: true}
+      bootc_build_registry: {type: str, required: true}
+      bootc_build_release: {type: str}
+      bootc_build_version: {type: str}
+      bootc_build_profiles: {type: list, elements: dict}
+      bootc_build_args: {type: dict}
+      bootc_build_registry_ca: {type: str}
+      bootc_build_authfile: {type: path}
+      bootc_build_registry_auth: {type: dict}
+      bootc_build_channel: {type: str}
+      bootc_build_push: {type: bool}
+      bootc_build_promote_from: {type: str}
+      bootc_build_promote_to: {type: str}
+      promote_rollback: {type: bool}
+      bootc_build_bib_image: {type: str}
+      bootc_build_disk_profile: {type: str}
+      bootc_build_disk_tag: {type: str}
+      bootc_build_disk_types: {type: list, elements: str}
+      bootc_build_disk_rootfs: {type: str}
+      bootc_build_disk_convert_vhdx: {type: bool}
+      bootc_build_output_dir: {type: path}

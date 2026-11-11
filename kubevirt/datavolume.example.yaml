@@ -1,0 +1,24 @@
+apiVersion: cdi.kubevirt.io/v1beta1
+kind: DataVolume
+metadata:
+  name: bootc-server-10-2-20261110-1530
+  namespace: openshift-virtualization-os-images
+  labels:
+    app.kubernetes.io/part-of: bootc
+    bootc.dev/version: "10.2-20261110.1530"
+  annotations:
+    cdi.kubevirt.io/storage.bind.immediate.requested: "true"
+spec:
+  source:
+    # Option A: from the internal HTTP server
+    http:
+      url: http://<pxe-http-host>/bootc/disks/server-10.2-20261110.1530/disk.qcow2
+    # Option B: from a containerDisk in the internal registry
+    # registry:
+    #   url: docker://<registry>/bootc/server-disk:10.2-20261110.1530
+    #   certConfigMap: internal-registry-ca     # ConfigMap with key ca.pem
+    #   secretRef: internal-registry-pull       # Secret with accessKeyId/secretKey
+  storage:
+    resources:
+      requests:
+        storage: 45Gi

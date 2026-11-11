@@ -1,0 +1,10 @@
+---
+# VM path: build a VM disk (qcow2/vmdk/...) from a bootc image.
+#   ansible-playbook playbooks/image_disk.yml -e bootc_build_disk_profile=workstation
+- name: Build a VM disk image with bootc-image-builder
+  hosts: bootc_build
+  become: true
+  roles:
+    - role: bootc_image_build
+      vars:
+        bootc_build_action: disk

@@ -1,0 +1,9 @@
+---
+# Copy to vault.yml, fill in, then: ansible-vault encrypt vault.yml
+# Use a read-only robot account. This secret ends up on every host for `bootc upgrade`.
+vault_bootc_registry_auth:
+  auths:
+    "registry.prov.example.internal:8443":
+      auth: "<base64 of robot-user:token>"
+# openssl passwd -6   (only if you want console/sudo passwords; key-only otherwise)
+vault_bootc_admin_password_hash: ""

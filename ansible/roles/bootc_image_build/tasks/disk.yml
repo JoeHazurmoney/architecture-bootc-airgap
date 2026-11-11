@@ -1,0 +1,71 @@
+---
+# VM path: turn the same bootc image into a VM disk with bootc-image-builder
+# (qcow2 for KubeVirt/KVM, vmdk for VMware, ami...). The disk tracks the
+# registry tag, so VMs get Day-2 updates with `bootc upgrade` like everything else.
+- name: Set disk build facts
+  ansible.builtin.set_fact:
+    __disk_profile: "{{ bootc_build_profiles | selectattr('name', 'equalto', bootc_build_disk_profile) | first }}"
+    __disk_out: "{{ bootc_build_output_dir }}/{{ bootc_build_disk_profile }}-{{ bootc_build_disk_tag }}"
+
+- name: Set the image reference
+  ansible.builtin.set_fact:
+    __disk_ref: "{{ bootc_build_registry }}/{{ __disk_profile.repository }}:{{ bootc_build_disk_tag }}"
+
+- name: Create the output directory
+  ansible.builtin.file:
+    path: "{{ __disk_out }}"
+    state: directory
+    mode: "0755"
+
+- name: Copy the bootc-image-builder config
+  ansible.builtin.copy:
+    src: "{{ bootc_build_images_src }}/bib/config-{{ bootc_build_disk_profile }}.toml"
+    dest: "{{ __disk_out }}/config.toml"
+    mode: "0644"
+
+- name: Pull the image into root's container storage (bib reads it from there)
+  ansible.builtin.command:
+    argv: [podman, pull, "{{ __disk_ref }}"]
+  environment:
+    REGISTRY_AUTH_FILE: "{{ bootc_build_authfile }}"
+  changed_when: false
+
+- name: Pull bootc-image-builder
+  ansible.builtin.command:
+    argv: [podman, pull, "{{ bootc_build_bib_image }}"]
+  environment:
+    REGISTRY_AUTH_FILE: "{{ bootc_build_authfile }}"
+  changed_when: false
+
+- name: Build the disk image(s)
+  ansible.builtin.command:
+    argv: >-
+      {{ ['podman', 'run', '--rm', '--privileged', '--pull=never',
+          '--security-opt', 'label=type:unconfined_t',
+          '-v', __disk_out ~ '/config.toml:/config.toml:ro',
+          '-v', __disk_out ~ ':/output',
+          '-v', '/var/lib/containers/storage:/var/lib/containers/storage',
+          bootc_build_bib_image]
+         + (bootc_build_disk_types | map('regex_replace', '^', '--type=') | list)
+         + ['--rootfs', bootc_build_disk_rootfs, __disk_ref] }}
+  changed_when: true
+
+- name: Convert the qcow2 to VHDX (Hyper-V)
+  ansible.builtin.command:
+    argv:
+      - qemu-img
+      - convert
+      - -O
+      - vhdx
+      - -o
+      - subformat=dynamic
+      - "{{ __disk_out }}/qcow2/disk.qcow2"
+      - "{{ __disk_out }}/disk.vhdx"
+    creates: "{{ __disk_out }}/disk.vhdx"
+  when:
+    - bootc_build_disk_convert_vhdx | bool
+    - "'qcow2' in bootc_build_disk_types"
+
+- name: Disk image location
+  ansible.builtin.debug:
+    msg: "{{ __disk_ref }} -> {{ __disk_out }}"

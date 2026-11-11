@@ -1,0 +1,15 @@
+[Unit]
+Description=bootc post-boot health check (automatic rollback on a bad new image)
+After=multi-user.target network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# RemainAfterExit lets Ansible tell "not run yet" (inactive) from
+# "passed" (active) and "failed" (failed).
+RemainAfterExit=yes
+ExecStart=/usr/libexec/bootc-health-check
+TimeoutStartSec=15min
+
+[Install]
+WantedBy=multi-user.target

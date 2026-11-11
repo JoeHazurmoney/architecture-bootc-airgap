@@ -1,0 +1,13 @@
+---
+# Host rollback: boot the previous deployment on the selected hosts.
+# Also roll back the channel (image_promote.yml -e promote_rollback=true) or
+# the next upgrade stages the bad image again.
+#   ansible-playbook playbooks/day2_rollback.yml -l ws-0042.example.internal
+- name: Roll back bootc hosts to their previous image
+  hosts: bootc_fleet
+  gather_facts: false
+  serial: "{{ day2_serial | default('100%') }}"
+  roles:
+    - role: bootc_lifecycle
+      vars:
+        bootc_lifecycle_action: rollback

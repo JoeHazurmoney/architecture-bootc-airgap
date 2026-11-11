@@ -1,0 +1,33 @@
+---
+bootc_pxe_installer_release: "{{ bootc_release }}"
+bootc_pxe_iso_path: /srv/iso/rhel-10.2-x86_64-boot.iso
+bootc_pxe_server_ip: 10.20.30.5
+bootc_pxe_http_url: http://10.20.30.5/bootc
+bootc_pxe_allowed_networks: [10.20.30.0/24]
+
+bootc_pxe_registry: "{{ bootc_registry }}"
+bootc_pxe_images: "{{ bootc_images }}"
+bootc_pxe_registry_ca: "{{ bootc_registry_ca }}"
+bootc_pxe_registry_auth: "{{ bootc_registry_auth }}"
+bootc_pxe_ks_directive: ostreecontainer        # bootc once every installer is 10.2+
+
+bootc_pxe_admin_user: sysadmin
+bootc_pxe_admin_ssh_keys:
+  - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExampleKeyReplaceMe platform-team
+bootc_pxe_admin_password_hash: "{{ vault_bootc_admin_password_hash | default('') }}"
+
+# Existing DHCP stays authoritative; hand these snippets to the DHCP owners.
+bootc_pxe_dhcp_mode: snippets
+bootc_pxe_fetch_snippets_to: "{{ playbook_dir }}/../../artifacts/dhcp-snippets"
+
+bootc_pxe_hosts:
+  - name: ws-0042
+    mac: "3c:ec:ef:00:00:42"
+    profile: workstation
+    disk: nvme0n1
+    state: install
+  - name: app-srv-01
+    mac: "3c:ec:ef:00:01:01"
+    profile: server
+    disk: sda
+    state: local          # installed already; PXE boot falls through to disk

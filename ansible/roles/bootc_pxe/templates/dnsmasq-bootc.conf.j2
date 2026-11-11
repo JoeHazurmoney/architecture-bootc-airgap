@@ -1,0 +1,49 @@
+# Managed by Ansible (role bootc_pxe). Do not edit on the server.
+# Mode: {{ bootc_pxe_dhcp_mode }}
+# DNS off: this dnsmasq does DHCP / proxy-DHCP only. TFTP is tftp-server.
+port=0
+log-dhcp
+{% if bootc_pxe_dhcp_interface %}
+interface={{ bootc_pxe_dhcp_interface }}
+bind-interfaces
+{% endif %}
+
+dhcp-match=set:efi-x64,option:client-arch,7
+dhcp-match=set:efi-x64,option:client-arch,9
+dhcp-match=set:efi-http,option:client-arch,16
+dhcp-match=set:bios,option:client-arch,0
+
+{% if bootc_pxe_dhcp_mode == 'full' %}
+# FULL MODE: authoritative DHCP. Isolated lab / provisioning networks only.
+dhcp-authoritative
+dhcp-range={{ bootc_pxe_dhcp_range_start }},{{ bootc_pxe_dhcp_range_end }},{{ bootc_pxe_dhcp_netmask }},{{ bootc_pxe_dhcp_lease_time }}
+{% if bootc_pxe_dhcp_router %}
+dhcp-option=option:router,{{ bootc_pxe_dhcp_router }}
+{% else %}
+# No default gateway: clients can't route anywhere
+dhcp-option=option:router
+{% endif %}
+{% if bootc_pxe_dhcp_dns | length > 0 %}
+dhcp-option=option:dns-server,{{ bootc_pxe_dhcp_dns | join(',') }}
+{% else %}
+dhcp-option=option:dns-server
+{% endif %}
+{% for h in bootc_pxe_hosts if h.ip is defined %}
+dhcp-host={{ h.mac | lower }},{{ h.ip }},{{ h.name }}
+{% endfor %}
+
+dhcp-boot=tag:efi-x64,{{ bootc_pxe_tftp_subdir }}/EFI/BOOT/{{ __bootc_pxe_efi_loader }},,{{ bootc_pxe_server_ip }}
+dhcp-option-force=tag:efi-http,60,HTTPClient
+dhcp-boot=tag:efi-http,{{ bootc_pxe_http_url }}/EFI/BOOT/{{ __bootc_pxe_efi_loader }}
+{% if bootc_pxe_bios_support %}
+dhcp-boot=tag:bios,{{ bootc_pxe_tftp_subdir }}/bios/i386-pc/core.0,,{{ bootc_pxe_server_ip }}
+{% endif %}
+{% else %}
+# PROXY MODE: the existing DHCP server hands out addresses; this only adds boot info.
+dhcp-range={{ bootc_pxe_proxy_dhcp_network }},proxy
+pxe-prompt="bootc network install",3
+pxe-service=tag:efi-x64,x86-64_EFI,"bootc network install",{{ bootc_pxe_tftp_subdir }}/EFI/BOOT/{{ __bootc_pxe_efi_loader }},{{ bootc_pxe_server_ip }}
+{% if bootc_pxe_bios_support %}
+pxe-service=tag:bios,x86PC,"bootc network install (BIOS)",{{ bootc_pxe_tftp_subdir }}/bios/i386-pc/core,{{ bootc_pxe_server_ip }}
+{% endif %}
+{% endif %}

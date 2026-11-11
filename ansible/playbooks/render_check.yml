@@ -1,0 +1,13 @@
+---
+# Render everything the PXE role would write, to a local directory, with no
+# changes to any server. tools/render_check.py runs this, then validates.
+#   ansible-playbook -i inventory/example playbooks/render_check.yml -e bootc_pxe_render_dir=/tmp/render
+- name: Render bootc_pxe output for review
+  hosts: pxe_servers
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Render
+      ansible.builtin.include_role:
+        name: bootc_pxe
+        tasks_from: render

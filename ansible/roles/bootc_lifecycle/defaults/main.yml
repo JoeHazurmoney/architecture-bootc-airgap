@@ -1,0 +1,14 @@
+---
+# status | upgrade | switch | rollback
+bootc_lifecycle_action: status
+# switch: full image reference, e.g. registry:5000/bootc/server:testing or ...@sha256:<digest>
+bootc_lifecycle_switch_ref: ""
+# Optional guard: the digest the host must end up on (sha256:...). With it set,
+# a staged image that doesn't match fails the host before any reboot.
+bootc_lifecycle_expected_digest: ""
+bootc_lifecycle_reboot: true
+# Reboot even when someone is logged in to a graphical session (workstations)
+bootc_lifecycle_force_reboot: false
+bootc_lifecycle_reboot_timeout: 1800
+bootc_lifecycle_health_unit: bootc-health-check.service
+bootc_lifecycle_health_timeout: 900

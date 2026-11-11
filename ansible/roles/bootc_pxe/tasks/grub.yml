@@ -1,0 +1,58 @@
+---
+# grub.cfg: if the client's MAC has a host file, load it (zero-touch).
+# Otherwise show the full menu (menu.cfg), which defaults to the local disk.
+# Both live next to grubx64.efi, in TFTP (PXE) and HTTP (UEFI HTTP Boot).
+- name: Render grub.cfg (per-MAC dispatch)
+  ansible.builtin.template:
+    src: grub.cfg.j2
+    dest: "{{ item }}/grub.cfg"
+    mode: "0644"
+  loop: "{{ __bootc_pxe_efi_dirs }}"
+
+- name: Render menu.cfg (full menu for unknown hosts)
+  ansible.builtin.template:
+    src: grub-menu.cfg.j2
+    dest: "{{ item }}/menu.cfg"
+    mode: "0644"
+  loop: "{{ __bootc_pxe_efi_dirs }}"
+
+- name: Render per-host GRUB configs
+  ansible.builtin.template:
+    src: grub-host.cfg.j2
+    dest: "{{ item.0 }}/hosts/{{ item.1.mac | lower }}.cfg"
+    mode: "0644"
+  loop: "{{ __bootc_pxe_efi_dirs | product(bootc_pxe_hosts) | list }}"
+  loop_control:
+    label: "{{ item.1.name }} -> {{ item.0 }}"
+
+- name: Find per-host GRUB configs
+  ansible.builtin.find:
+    paths: "{{ __bootc_pxe_efi_dirs | map('regex_replace', '$', '/hosts') | list }}"
+    patterns: "*.cfg"
+  register: __bootc_pxe_host_cfgs
+
+- name: Remove GRUB configs for hosts no longer in inventory
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: absent
+  loop: "{{ __bootc_pxe_host_cfgs.files }}"
+  loop_control:
+    label: "{{ item.path }}"
+  when: (item.path | basename | regex_replace('\.cfg$', '')) not in (bootc_pxe_hosts | map(attribute='mac') | map('lower') | list)
+
+- name: Legacy BIOS PXE (grub2-mknetdir)
+  when: bootc_pxe_bios_support | bool
+  block:
+    - name: Create the BIOS GRUB netboot dir
+      ansible.builtin.command:
+        argv:
+          - grub2-mknetdir
+          - "--net-directory={{ bootc_pxe_tftp_root }}"
+          - "--subdir={{ bootc_pxe_tftp_subdir }}/bios"
+        creates: "{{ __bootc_pxe_tftp_dir }}/bios/i386-pc/core.0"
+
+    - name: Render the BIOS grub.cfg (same menu)
+      ansible.builtin.template:
+        src: grub-menu.cfg.j2
+        dest: "{{ __bootc_pxe_tftp_dir }}/bios/grub.cfg"
+        mode: "0644"

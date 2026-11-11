@@ -1,0 +1,37 @@
+---
+- name: Open firewalld services
+  ansible.posix.firewalld:
+    service: "{{ item }}"
+    zone: "{{ bootc_pxe_firewall_zone if bootc_pxe_firewall_zone | length > 0 else omit }}"
+    permanent: true
+    immediate: true
+    state: enabled
+  loop: >-
+    {{ ['tftp', 'http']
+       + (['dhcp'] if bootc_pxe_dhcp_mode == 'full' else [])
+       + (['dhcp', 'proxy-dhcp'] if bootc_pxe_dhcp_mode == 'proxy' else []) }}
+  when: bootc_pxe_manage_firewall | bool
+
+# SELinux stays enforcing. Custom roots get the right file contexts.
+- name: SELinux file contexts for non-default roots
+  when: bootc_pxe_manage_selinux | bool
+  block:
+    - name: Label the HTTP root as web content
+      community.general.sefcontext:
+        target: "{{ bootc_pxe_http_root }}(/.*)?"
+        setype: httpd_sys_content_t
+        state: present
+      when: not bootc_pxe_http_root.startswith('/var/www/')
+
+    - name: Label the TFTP root as TFTP content
+      community.general.sefcontext:
+        target: "{{ bootc_pxe_tftp_root }}(/.*)?"
+        setype: tftpdir_t
+        state: present
+      when: bootc_pxe_tftp_root != '/var/lib/tftpboot'
+
+    - name: Restore SELinux contexts on served content
+      ansible.builtin.command:
+        argv: [restorecon, -R, -v, "{{ bootc_pxe_http_root }}", "{{ bootc_pxe_tftp_root }}"]
+      register: __bootc_pxe_restorecon
+      changed_when: __bootc_pxe_restorecon.stdout | length > 0

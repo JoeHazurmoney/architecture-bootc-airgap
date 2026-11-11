@@ -1,0 +1,73 @@
+{%- set user_data -%}
+#cloud-config
+hostname: {{ bootc_kubevirt_vm_name }}
+users:
+  - name: {{ bootc_kubevirt_vm_user }}
+    groups: [wheel]
+    sudo: "ALL=(ALL) NOPASSWD:ALL"
+    lock_passwd: true
+    ssh_authorized_keys: {{ bootc_kubevirt_vm_ssh_keys | to_json }}
+{% if bootc_kubevirt_vm_registry_auth %}
+write_files:
+  - path: /etc/ostree/auth.json
+    permissions: "0600"
+    encoding: b64
+    content: {{ bootc_kubevirt_vm_registry_auth | to_json | b64encode }}
+{% endif %}
+{%- endset -%}
+apiVersion: kubevirt.io/v1
+kind: VirtualMachine
+metadata:
+  name: {{ bootc_kubevirt_vm_name }}
+  namespace: {{ bootc_kubevirt_vm_namespace }}
+  labels:
+    app.kubernetes.io/part-of: bootc
+spec:
+  runStrategy: Always
+  dataVolumeTemplates:
+    - metadata:
+        name: {{ bootc_kubevirt_vm_name }}-root
+      spec:
+        sourceRef:
+          kind: DataSource
+          name: {{ bootc_kubevirt_name }}
+          namespace: {{ bootc_kubevirt_namespace }}
+        storage:
+          resources:
+            requests:
+              storage: {{ bootc_kubevirt_storage_size }}
+  template:
+    metadata:
+      labels:
+        kubevirt.io/domain: {{ bootc_kubevirt_vm_name }}
+    spec:
+      domain:
+        cpu:
+          cores: {{ bootc_kubevirt_vm_cpu }}
+        memory:
+          guest: {{ bootc_kubevirt_vm_memory }}
+        firmware:
+          bootloader:
+            efi:
+              secureBoot: false
+        devices:
+          disks:
+            - name: rootdisk
+              disk:
+                bus: virtio
+            - name: cloudinitdisk
+              disk:
+                bus: virtio
+          interfaces:
+            - name: default
+              masquerade: {}
+      networks:
+        - name: default
+          pod: {}
+      volumes:
+        - name: rootdisk
+          dataVolume:
+            name: {{ bootc_kubevirt_vm_name }}-root
+        - name: cloudinitdisk
+          cloudInitNoCloud:
+            userData: {{ user_data | to_json }}

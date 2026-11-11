@@ -1,0 +1,45 @@
+---
+- name: Versioned DataVolume name
+  ansible.builtin.set_fact:
+    __dv_name: "{{ (bootc_kubevirt_name ~ '-' ~ bootc_kubevirt_version) | lower | regex_replace('[^a-z0-9-]', '-') | truncate(63, true, '') }}"
+
+- name: Import the disk as a DataVolume (CDI)
+  kubernetes.core.k8s:
+    kubeconfig: "{{ bootc_kubevirt_kubeconfig | default(omit, true) }}"
+    context: "{{ bootc_kubevirt_context | default(omit, true) }}"
+    state: present
+    template: datavolume.yaml.j2
+
+- name: Wait for the import to finish
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ bootc_kubevirt_kubeconfig | default(omit, true) }}"
+    context: "{{ bootc_kubevirt_context | default(omit, true) }}"
+    api_version: cdi.kubevirt.io/v1beta1
+    kind: DataVolume
+    name: "{{ __dv_name }}"
+    namespace: "{{ bootc_kubevirt_namespace }}"
+  register: __dv
+  until: (__dv.resources | first | default({})).status.phase | default('') in ['Succeeded', 'Failed']
+  retries: "{{ (bootc_kubevirt_wait_timeout | int / 15) | int }}"
+  delay: 15
+
+- name: The import must succeed
+  ansible.builtin.assert:
+    that: (__dv.resources | first).status.phase == 'Succeeded'
+    fail_msg: "DataVolume {{ __dv_name }} ended in phase {{ (__dv.resources | first).status.phase }}."
+    quiet: true
+
+- name: Point the golden DataSource at the new version
+  kubernetes.core.k8s:
+    kubeconfig: "{{ bootc_kubevirt_kubeconfig | default(omit, true) }}"
+    context: "{{ bootc_kubevirt_context | default(omit, true) }}"
+    state: present
+    template: datasource.yaml.j2
+
+- name: Create the example VM
+  kubernetes.core.k8s:
+    kubeconfig: "{{ bootc_kubevirt_kubeconfig | default(omit, true) }}"
+    context: "{{ bootc_kubevirt_context | default(omit, true) }}"
+    state: present
+    template: virtualmachine.yaml.j2
+  when: bootc_kubevirt_create_vm | bool

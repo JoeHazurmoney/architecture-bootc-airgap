@@ -1,0 +1,62 @@
+---
+# Simulate the airgap: block every NEW outbound connection from the PXE VM to
+# its uplink (public zone). Replies to inbound SSH still flow (established),
+# and the lab side (internal zone) is untouched. Lab clients never had a route out.
+#   lab/run-tools.sh ansible-playbook -i lab/inventory lab/playbooks/lab_airgap.yml -e airgap=on
+#   lab/run-tools.sh ansible-playbook -i lab/inventory lab/playbooks/lab_airgap.yml -e airgap=off
+- name: Airgap the lab
+  hosts: pxe_servers
+  become: true
+  vars:
+    airgap: "on"
+  tasks:
+    - name: Check whether the policy exists
+      ansible.builtin.command:
+        argv: [firewall-cmd, --permanent, --info-policy=bootc-lab-airgap]
+      register: __policy
+      changed_when: false
+      failed_when: false
+
+    - name: Turn the airgap on
+      when: airgap == 'on' and __policy.rc != 0
+      block:
+        - name: Create the egress policy (HOST -> public = REJECT)
+          ansible.builtin.command:
+            argv: [firewall-cmd, --permanent, --new-policy=bootc-lab-airgap]
+          changed_when: true
+
+        - name: Configure the policy
+          ansible.builtin.command:
+            argv:
+              - firewall-cmd
+              - --permanent
+              - --policy=bootc-lab-airgap
+              - --add-ingress-zone=HOST
+              - --add-egress-zone=public
+              - --set-target=REJECT
+          changed_when: true
+
+    - name: Turn the airgap off
+      ansible.builtin.command:
+        argv: [firewall-cmd, --permanent, --delete-policy=bootc-lab-airgap]
+      when: airgap == 'off' and __policy.rc == 0
+      changed_when: true
+
+    - name: Reload firewalld
+      ansible.builtin.command:
+        argv: [firewall-cmd, --reload]
+      changed_when: false
+
+    - name: Probe the internet
+      ansible.builtin.uri:
+        url: https://quay.io/v2/
+        timeout: 5
+        status_code: [200, 401]
+      register: __probe
+      failed_when: false
+
+    - name: Report
+      ansible.builtin.assert:
+        that: (__probe.status | default(-1) | int <= 0) == (airgap == 'on')
+        success_msg: "Airgap {{ airgap }}: quay.io {{ 'unreachable' if airgap == 'on' else 'reachable' }} from the PXE VM"
+        fail_msg: "Airgap {{ airgap }} but quay.io probe returned {{ __probe.status | default('n/a') }}"

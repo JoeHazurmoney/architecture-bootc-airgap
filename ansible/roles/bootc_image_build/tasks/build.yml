@@ -1,0 +1,76 @@
+---
+# Patch flow: pull the (mirrored) base, build every profile on top of it,
+# lint, diff RPMs against the current channel, push an immutable version tag,
+# and move the channel tag (default: testing) to the new digest.
+- name: Fix the version string once (now() changes on every call)
+  ansible.builtin.set_fact:
+    __bootc_version: >-
+      {{ bootc_build_version if bootc_build_version | length > 0
+         else bootc_build_release ~ '-' ~ now(utc=true, fmt='%Y%m%d.%H%M') }}
+    __bootc_src: "{{ bootc_build_workdir }}/src"
+    __bootc_report_dir: "{{ bootc_build_workdir }}/reports"
+
+- name: Create build directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - "{{ bootc_build_workdir }}"
+    - "{{ __bootc_report_dir }}"
+
+- name: Sync the image sources to the build host
+  ansible.posix.synchronize:
+    src: "{{ bootc_build_images_src }}"
+    dest: "{{ __bootc_src }}/"
+    delete: true
+    rsync_opts:
+      - "--exclude=*.qcow2"
+      - "--exclude=files/ca-trust/*.crt"
+
+- name: Bake the registry CA into the image trust store
+  ansible.builtin.copy:
+    dest: "{{ __bootc_src }}/files/ca-trust/internal-registry-ca.crt"
+    content: "{{ bootc_build_registry_ca | trim }}\n"
+    mode: "0644"
+  when: bootc_build_registry_ca | length > 0
+
+- name: Pull the base image (from the mirror)
+  ansible.builtin.command:
+    argv: [podman, pull, "{{ bootc_build_base_image }}"]
+  environment:
+    REGISTRY_AUTH_FILE: "{{ bootc_build_authfile }}"
+  changed_when: false
+
+- name: Read the base image digest
+  ansible.builtin.command:
+    argv: [podman, image, inspect, --format, "{% raw %}{{.Digest}}{% endraw %}", "{{ bootc_build_base_image }}"]
+  register: __bootc_base_digest
+  changed_when: false
+
+- name: Build, diff, push and tag each profile
+  ansible.builtin.include_tasks: build_profile.yml
+  loop: "{{ bootc_build_profiles }}"
+  loop_control:
+    loop_var: __profile
+    label: "{{ __profile.name }}"
+
+- name: Write the build manifest
+  ansible.builtin.copy:
+    dest: "{{ __bootc_report_dir }}/{{ __bootc_version }}.json"
+    mode: "0644"
+    content: |
+      {{ {'version': __bootc_version,
+          'git_sha': bootc_build_git_sha,
+          'base_image': bootc_build_base_image,
+          'base_digest': __bootc_base_digest.stdout,
+          'channel': bootc_build_channel,
+          'images': __bootc_built | default({})} | to_nice_json }}
+
+- name: Build summary
+  ansible.builtin.debug:
+    msg:
+      version: "{{ __bootc_version }}"
+      base: "{{ bootc_build_base_image }} ({{ __bootc_base_digest.stdout }})"
+      images: "{{ __bootc_built | default({}) }}"
+      reports: "{{ __bootc_report_dir }}"

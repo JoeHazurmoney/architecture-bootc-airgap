@@ -1,0 +1,10 @@
+---
+# What is each host running, what's staged, what can it roll back to?
+#   ansible-playbook playbooks/day2_status.yml -l bootc_workstations
+- name: Report bootc fleet status
+  hosts: bootc_fleet
+  gather_facts: false
+  roles:
+    - role: bootc_lifecycle
+      vars:
+        bootc_lifecycle_action: status

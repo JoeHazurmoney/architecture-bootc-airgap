@@ -1,0 +1,11 @@
+---
+# Import a bootc VM disk into OpenShift Virtualization as a golden DataSource.
+#   KUBECONFIG=~/.kube/config ansible-playbook playbooks/kubevirt_golden_image.yml \
+#     -e bootc_kubevirt_version=10.2-20261110.1530 \
+#     -e bootc_kubevirt_source_url=http://10.20.30.5/bootc/disks/server-10.2-20261110.1530/disk.qcow2
+- name: KubeVirt golden image from the bootc disk
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  roles:
+    - role: bootc_kubevirt_image

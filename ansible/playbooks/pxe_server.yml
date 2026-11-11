@@ -1,0 +1,8 @@
+---
+# Configure the PXE / UEFI HTTP boot server.
+#   ansible-playbook playbooks/pxe_server.yml
+- name: PXE server for bootc installs
+  hosts: pxe_servers
+  become: true
+  roles:
+    - role: bootc_pxe

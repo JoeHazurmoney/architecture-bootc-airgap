@@ -1,0 +1,51 @@
+---
+# Stage the newest image for the tracked tag (only changed layers download),
+# then reboot into it and verify.
+- name: Stage the update (bootc upgrade)
+  ansible.builtin.command:
+    argv: [bootc, upgrade, --quiet]
+  register: __bootc_upgrade
+  changed_when: false   # changes are judged by the staged digest below
+  become: true
+
+- name: Read bootc status (after staging)
+  ansible.builtin.include_tasks: status.yml
+
+- name: Check whether this host already auto-rolled-back the staged image
+  ansible.builtin.stat:
+    path: "/var/lib/bootc-health/rolled-back-{{ bootc_lifecycle_state.staged_digest | regex_replace('^sha256:', '') }}"
+  register: __bootc_marker
+  when: bootc_lifecycle_state.staged_digest | length > 0
+
+- name: Refuse an image this host already rejected
+  ansible.builtin.fail:
+    msg: >-
+      {{ bootc_lifecycle_state.staged_digest }} failed its health check on this
+      host before and was rolled back automatically. Fix the image or point the
+      channel back at the previous digest (image_promote.yml -e promote_rollback=true).
+  when:
+    - bootc_lifecycle_state.staged_digest | length > 0
+    - __bootc_marker.stat.exists
+
+- name: Check the staged image is the one we expect
+  ansible.builtin.assert:
+    that: (bootc_lifecycle_state.staged_digest or bootc_lifecycle_state.booted_digest) == bootc_lifecycle_expected_digest
+    fail_msg: >-
+      Expected {{ bootc_lifecycle_expected_digest }}, but the host would run
+      {{ bootc_lifecycle_state.staged_digest or bootc_lifecycle_state.booted_digest }}.
+    quiet: true
+  when: bootc_lifecycle_expected_digest | length > 0
+
+- name: Note that an update is staged
+  ansible.builtin.debug:
+    msg: "Staged {{ bootc_lifecycle_state.staged_digest }} (booted {{ bootc_lifecycle_state.booted_digest }})"
+  changed_when: true
+  when: bootc_lifecycle_state.staged_digest | length > 0
+
+- name: Reboot into the staged image and verify
+  ansible.builtin.include_tasks: reboot_and_verify.yml
+  vars:
+    __bootc_target_digest: "{{ bootc_lifecycle_state.staged_digest }}"
+  when:
+    - bootc_lifecycle_state.staged_digest | length > 0
+    - bootc_lifecycle_reboot | bool

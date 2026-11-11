@@ -1,0 +1,10 @@
+---
+# Promotion = retag by digest. Nothing is rebuilt, so stable gets exactly the
+# bits that were tested. The old stable digest is kept as <to>-previous, which
+# promote_rollback=true restores (fleet rollback).
+- name: Promote or roll back each profile
+  ansible.builtin.include_tasks: promote_profile.yml
+  loop: "{{ bootc_build_profiles }}"
+  loop_control:
+    loop_var: __profile
+    label: "{{ __profile.name }}"

@@ -1,0 +1,86 @@
+---
+# Input: __bootc_target_digest, the digest the host should boot.
+- name: Look for users in a graphical session (workstations)
+  ansible.builtin.shell:
+    cmd: |
+      set -o pipefail
+      for s in $(loginctl list-sessions --no-legend | awk '{print $1}'); do
+        loginctl show-session "$s" -p Class -p Type -p Name --value | paste -sd' '
+      done | awk '$1 == "user" && ($2 == "wayland" || $2 == "x11") {print $3}'
+    executable: /bin/bash
+  register: __bootc_gui_users
+  changed_when: false
+  become: true
+
+- name: Leave the update staged for users who are logged in
+  when:
+    - __bootc_gui_users.stdout | length > 0
+    - not (bootc_lifecycle_force_reboot | bool)
+  block:
+    - name: Report the deferred reboot
+      ansible.builtin.debug:
+        msg: >-
+          {{ __bootc_gui_users.stdout_lines | join(', ') }} logged in; the update is
+          staged and applies at the next reboot. Use -e bootc_lifecycle_force_reboot=true
+          to reboot anyway.
+
+    - name: Stop here for this host
+      ansible.builtin.meta: end_host
+
+- name: Reboot
+  ansible.builtin.reboot:
+    reboot_timeout: "{{ bootc_lifecycle_reboot_timeout }}"
+    msg: "bootc: rebooting into {{ __bootc_target_digest }}"
+  become: true
+
+# The health check can find the new image unhealthy, roll back and reboot on
+# its own, so expect the connection to drop while waiting.
+- name: Wait for the health check result
+  ansible.builtin.command:
+    argv: [systemctl, show, -p, ActiveState, --value, "{{ bootc_lifecycle_health_unit }}"]
+  register: __bootc_health
+  until: __bootc_health.stdout | default('') in ['active', 'failed']
+  retries: "{{ (bootc_lifecycle_health_timeout | int / 10) | int }}"
+  delay: 10
+  changed_when: false
+  ignore_unreachable: true
+  ignore_errors: true
+
+- name: Wait for the host after an automatic rollback reboot
+  ansible.builtin.wait_for_connection:
+    delay: 30
+    timeout: "{{ bootc_lifecycle_reboot_timeout }}"
+  when: __bootc_health is unreachable or __bootc_health is failed
+
+- name: Wait for the health check result (after an automatic rollback)
+  ansible.builtin.command:
+    argv: [systemctl, show, -p, ActiveState, --value, "{{ bootc_lifecycle_health_unit }}"]
+  register: __bootc_health
+  until: __bootc_health.stdout in ['active', 'failed']
+  retries: "{{ (bootc_lifecycle_health_timeout | int / 10) | int }}"
+  delay: 10
+  changed_when: false
+  when: __bootc_health is unreachable or __bootc_health is failed
+
+- name: Read bootc status (after reboot)
+  ansible.builtin.include_tasks: status.yml
+
+- name: Collect the health check log
+  ansible.builtin.command:
+    argv: [journalctl, -b, -u, "{{ bootc_lifecycle_health_unit }}", --no-pager, -o, cat]
+  register: __bootc_health_log
+  changed_when: false
+  become: true
+
+- name: The host must be running the target image and be healthy
+  ansible.builtin.assert:
+    that:
+      - bootc_lifecycle_state.booted_digest == __bootc_target_digest
+      - __bootc_health.stdout == 'active'
+    fail_msg: |-
+      Expected to boot {{ __bootc_target_digest }}; booted {{ bootc_lifecycle_state.booted_digest }}.
+      Health check: {{ __bootc_health.stdout }}.
+      {{ 'The new image failed its health check and the host rolled back on its own.'
+         if bootc_lifecycle_state.booted_digest != __bootc_target_digest else '' }}
+      {{ __bootc_health_log.stdout }}
+    success_msg: "Booted {{ __bootc_target_digest }}, health check passed."

@@ -1,0 +1,10 @@
+---
+- name: Install PXE server packages (dnf only; no pip on the host)
+  ansible.builtin.dnf:
+    name: >-
+      {{ __bootc_pxe_packages_base
+         + (__bootc_pxe_packages_dnsmasq if bootc_pxe_dhcp_mode in ['proxy', 'full'] else [])
+         + (__bootc_pxe_packages_bios if bootc_pxe_bios_support else [])
+         + (['pykickstart'] if bootc_pxe_validate_kickstarts else [])
+         + (['firewalld'] if bootc_pxe_manage_firewall else []) }}
+    state: present

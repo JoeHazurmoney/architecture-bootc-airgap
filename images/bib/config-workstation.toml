@@ -1,0 +1,4 @@
+# Workstation VM disk image. Bigger root for user caches and browser profiles.
+[[customizations.filesystem]]
+mountpoint = "/"
+minsize = "60 GiB"

@@ -1,0 +1,12 @@
+apiVersion: cdi.kubevirt.io/v1beta1
+kind: DataSource
+metadata:
+  name: bootc-server
+  namespace: openshift-virtualization-os-images
+  labels:
+    app.kubernetes.io/part-of: bootc
+spec:
+  source:
+    pvc:
+      name: bootc-server-10-2-20261110-1530
+      namespace: openshift-virtualization-os-images

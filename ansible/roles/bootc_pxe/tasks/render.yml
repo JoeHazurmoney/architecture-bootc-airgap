@@ -1,0 +1,81 @@
+---
+# Render-only entry point: writes every generated file to a directory on the
+# control node, without touching the PXE server. Used by CI
+# (tools/render_check.py) and for reviewing changes before a run:
+#   include_role: {name: bootc_pxe, tasks_from: render}  with bootc_pxe_render_dir set
+- name: Set the render output directory
+  ansible.builtin.set_fact:
+    __render_out: "{{ bootc_pxe_render_dir }}/{{ inventory_hostname }}"
+
+- name: Create render directories
+  ansible.builtin.file:
+    path: "{{ __render_out }}/{{ item }}"
+    state: directory
+    mode: "0755"
+  loop: [ks/hosts, EFI/BOOT/hosts, dhcp-snippets, etc]
+  delegate_to: localhost
+
+- name: Render profile Kickstarts
+  ansible.builtin.template:
+    src: kickstart.ks.j2
+    dest: "{{ __render_out }}/ks/{{ item }}.ks"
+    mode: "0644"
+  loop: "{{ bootc_pxe_images.keys() | list }}"
+  vars:
+    ks_profile: "{{ item }}"
+    ks_host: {}
+  delegate_to: localhost
+
+- name: Render per-host Kickstarts
+  ansible.builtin.template:
+    src: kickstart.ks.j2
+    dest: "{{ __render_out }}/ks/hosts/{{ item.name }}.ks"
+    mode: "0644"
+  loop: "{{ bootc_pxe_hosts }}"
+  loop_control:
+    label: "{{ item.name }}"
+  vars:
+    ks_profile: "{{ item.profile }}"
+    ks_host: "{{ item }}"
+  delegate_to: localhost
+
+- name: Render GRUB entry and menu
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "{{ __render_out }}/EFI/BOOT/{{ item | regex_replace('^grub-menu', 'menu') }}"
+    mode: "0644"
+  loop: [grub.cfg, grub-menu.cfg]
+  delegate_to: localhost
+
+- name: Render per-host GRUB configs
+  ansible.builtin.template:
+    src: grub-host.cfg.j2
+    dest: "{{ __render_out }}/EFI/BOOT/hosts/{{ item.1.mac | lower }}.cfg"
+    mode: "0644"
+  loop: "{{ [__render_out ~ '/EFI/BOOT'] | product(bootc_pxe_hosts) | list }}"
+  loop_control:
+    label: "{{ item.1.name }}"
+  delegate_to: localhost
+
+- name: Render DHCP snippets
+  ansible.builtin.template:
+    src: "dhcp/{{ item }}.j2"
+    dest: "{{ __render_out }}/dhcp-snippets/{{ item }}"
+    mode: "0644"
+  loop:
+    - README.md
+    - kea-dhcp4-client-classes.json
+    - isc-dhcpd.conf
+    - infoblox.md
+    - dnsmasq-proxy.conf
+  delegate_to: localhost
+
+- name: Render httpd and dnsmasq configs
+  ansible.builtin.template:
+    src: "{{ item.src }}"
+    dest: "{{ __render_out }}/etc/{{ item.dest }}"
+    mode: "0644"
+  loop:
+    - {src: httpd-bootc.conf.j2, dest: httpd-bootc-pxe.conf}
+    - {src: dnsmasq-bootc.conf.j2, dest: dnsmasq-bootc-pxe.conf}
+  delegate_to: localhost

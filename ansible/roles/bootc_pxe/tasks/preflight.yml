@@ -1,0 +1,97 @@
+---
+- name: Require an EL (RHEL / AlmaLinux / Rocky) PXE host
+  ansible.builtin.assert:
+    that: ansible_facts['os_family'] == 'RedHat'
+    fail_msg: bootc_pxe supports EL 9/10 hosts only.
+    quiet: true
+
+- name: Validate per-host entries
+  ansible.builtin.assert:
+    that:
+      - item.profile in bootc_pxe_images
+      - item.mac | lower is match('^([0-9a-f]{2}:){5}[0-9a-f]{2}$')
+      - item.name is match('^[a-zA-Z0-9][a-zA-Z0-9.-]*$')
+    fail_msg: >-
+      Host {{ item.name }}: profile must be one of {{ bootc_pxe_images.keys() | list }}
+      and mac must look like aa:bb:cc:dd:ee:ff.
+    quiet: true
+  loop: "{{ bootc_pxe_hosts }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Require unique host names and MAC addresses
+  ansible.builtin.assert:
+    that:
+      - (bootc_pxe_hosts | map(attribute='name') | list | unique | length) == (bootc_pxe_hosts | length)
+      - (bootc_pxe_hosts | map(attribute='mac') | map('lower') | list | unique | length) == (bootc_pxe_hosts | length)
+    fail_msg: Duplicate name or MAC in bootc_pxe_hosts.
+    quiet: true
+
+- name: Require each image profile to have a repository and a tag or digest
+  ansible.builtin.assert:
+    that:
+      - item.value.repository is defined
+      - item.value.tag is defined or item.value.digest is defined
+    fail_msg: "bootc_pxe_images.{{ item.key }} needs repository plus tag or digest."
+    quiet: true
+  loop: "{{ bootc_pxe_images | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+
+- name: Full DHCP mode is only for an isolated network with an explicit interface
+  ansible.builtin.assert:
+    that:
+      - bootc_pxe_dhcp_interface | length > 0
+      - bootc_pxe_dhcp_range_start | length > 0
+      - bootc_pxe_dhcp_range_end | length > 0
+    fail_msg: >-
+      bootc_pxe_dhcp_mode=full runs an authoritative DHCP server. Set
+      bootc_pxe_dhcp_interface and the range, and use it only on an isolated
+      provisioning network or lab switch.
+    quiet: true
+  when: bootc_pxe_dhcp_mode == 'full'
+
+- name: Proxy DHCP mode needs the network it answers for
+  ansible.builtin.assert:
+    that: bootc_pxe_proxy_dhcp_network | length > 0
+    fail_msg: Set bootc_pxe_proxy_dhcp_network (e.g. 10.20.30.0) for proxy mode.
+    quiet: true
+  when: bootc_pxe_dhcp_mode == 'proxy'
+
+- name: GRUB can only fetch kernels over HTTP on port 80
+  ansible.builtin.assert:
+    that: "':' not in __bootc_pxe_http_host"
+    fail_msg: >-
+      bootc_pxe_kernel_transport=http needs bootc_pxe_http_url on port 80
+      (GRUB's http module has no port syntax). Use port 80 or transport tftp.
+    quiet: true
+  when: bootc_pxe_kernel_transport == 'http'
+
+- name: Check the boot ISO is on the host
+  ansible.builtin.stat:
+    path: "{{ bootc_pxe_iso_path }}"
+    get_checksum: false
+  register: __bootc_pxe_iso_stat
+  when: bootc_pxe_boot_media_source == 'iso'
+
+- name: Fail if the boot ISO is missing
+  ansible.builtin.assert:
+    that: __bootc_pxe_iso_stat.stat.exists
+    fail_msg: >-
+      {{ bootc_pxe_iso_path }} not found. Copy the RHEL 10 boot ISO
+      (rhel-10.x-x86_64-boot.iso) to the PXE host first.
+    quiet: true
+  when: bootc_pxe_boot_media_source == 'iso'
+
+- name: Check the extracted media dir
+  ansible.builtin.stat:
+    path: "{{ bootc_pxe_media_dir }}/images/pxeboot/vmlinuz"
+  register: __bootc_pxe_dir_stat
+  when: bootc_pxe_boot_media_source == 'dir'
+
+- name: Fail if the media dir is missing
+  ansible.builtin.assert:
+    that: __bootc_pxe_dir_stat.stat.exists
+    fail_msg: "{{ bootc_pxe_media_dir }} has no images/pxeboot/vmlinuz."
+    quiet: true
+  when: bootc_pxe_boot_media_source == 'dir'

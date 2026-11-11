@@ -1,0 +1,35 @@
+{% set host = item.1 %}
+{% set state = host.state | default('install') %}
+{% import '_kernel.j2' as k with context %}
+# Managed by Ansible (role bootc_pxe). Do not edit on the server.
+# Host {{ host.name }} ({{ host.mac | lower }}): profile {{ host.profile }}, state {{ state }}
+#   install   = install only if no local disk has a UEFI boot loader yet (safe with
+#               network-first boot order: an installed host boots its disk)
+#   reinstall = always install (wipes the disk on every network boot; set back afterwards)
+#   local     = always boot the local disk
+set timeout=5
+{% if state == 'local' %}
+set default="local"
+{% else %}
+set default="install"
+{% endif %}
+{% if state == 'install' %}
+if search --no-floppy --file --set=bootc_existing_os /EFI/BOOT/BOOTX64.EFI; then
+  echo "An OS is already installed (${bootc_existing_os}); booting the local disk."
+  set default="local"
+fi
+{% endif %}
+
+menuentry 'Install {{ host.name }} as bootc {{ host.profile }} - ERASES {{ host.disk | default("ALL DISKS") }}' --id install {
+  echo 'Zero-touch install of {{ host.name }}...'
+  linux {{ k.kpath }}/vmlinuz {{ k.kargs }} inst.ks={{ bootc_pxe_http_url }}/ks/hosts/{{ host.name }}.ks
+  initrd {{ k.kpath }}/initrd.img
+}
+
+menuentry 'Boot from local disk' --id local {
+  exit
+}
+
+menuentry 'Full menu' --id menu {
+  configfile "${prefix}/menu.cfg"
+}

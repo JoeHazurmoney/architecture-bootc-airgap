@@ -1,0 +1,20 @@
+---
+- name: Restart httpd
+  ansible.builtin.systemd_service:
+    name: httpd.service
+    state: restarted
+  when: bootc_pxe_manage_services | bool
+
+- name: Restart tftp
+  ansible.builtin.systemd_service:
+    name: tftp.socket
+    state: restarted
+  when: bootc_pxe_manage_services | bool
+
+- name: Restart dnsmasq
+  ansible.builtin.systemd_service:
+    name: dnsmasq.service
+    state: restarted
+  when:
+    - bootc_pxe_manage_services | bool
+    - bootc_pxe_dhcp_mode in ['proxy', 'full']

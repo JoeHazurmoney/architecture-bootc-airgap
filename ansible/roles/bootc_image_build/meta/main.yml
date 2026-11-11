@@ -1,0 +1,14 @@
+---
+galaxy_info:
+  role_name: bootc_image_build
+  namespace: bootc_airgap
+  author: platform-team
+  description: Build, patch, promote and roll back bootc images; make VM disk images with bootc-image-builder
+  license: Apache-2.0
+  min_ansible_version: "2.16"
+  platforms:
+    - name: EL
+      versions:
+        - "9"
+        - "10"
+dependencies: []

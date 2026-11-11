@@ -1,0 +1,12 @@
+---
+# Patch: rebuild every profile on the current (mirrored) base, report RPM
+# changes, push an immutable version tag, and move the :testing channel.
+#   ansible-playbook playbooks/image_patch.yml
+#   ansible-playbook playbooks/image_patch.yml -e '{"bootc_build_args": {"APPLY_UPDATES": "true"}}'
+- name: Build and publish patched bootc images
+  hosts: bootc_build
+  become: true
+  roles:
+    - role: bootc_image_build
+      vars:
+        bootc_build_action: build

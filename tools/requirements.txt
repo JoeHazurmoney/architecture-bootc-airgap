@@ -1,0 +1,12 @@
+# Control-node tooling. Pinned; bump deliberately in its own commit.
+ansible-core==2.22.0
+ansible-lint==26.11.0
+molecule==26.11.0
+molecule-plugins[docker]==26.11.0
+docker==7.2.0
+yamllint==1.38.0
+pykickstart==3.78
+jmespath==1.1.0
+kubernetes==37.0.2
+passlib==1.7.4
+cryptography==50.0.2

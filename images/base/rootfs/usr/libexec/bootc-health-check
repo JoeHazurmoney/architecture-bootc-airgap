@@ -1,0 +1,61 @@
+#!/bin/bash
+# bootc post-boot health check with automatic rollback.
+#
+# Runs every executable *.sh in:
+#   /usr/lib/bootc-health.d/   shipped in the image
+#   /etc/bootc-health.d/       added locally or by config management
+#
+# All checks pass  -> record this image digest as last-known-good.
+# A check fails on the first boot of a NEW image (digest != last-good) and
+# a rollback deployment exists -> `bootc rollback` and reboot, once.
+# A marker in /var stops a reboot loop: a digest is rolled back at most once.
+set -uo pipefail
+
+STATE_DIR=/var/lib/bootc-health
+LAST_GOOD="${STATE_DIR}/last-good"
+log() { echo "bootc-health: $*"; }
+
+mkdir -p "${STATE_DIR}"
+
+# Let boot finish first (returns running or degraded).
+systemctl is-system-running --wait >/dev/null 2>&1 || true
+
+if ! status_json=$(bootc status --format=json 2>/dev/null); then
+    log "cannot read bootc status"
+    exit 1
+fi
+booted=$(jq -r '.status.booted.image.imageDigest // empty' <<<"${status_json}")
+rollback=$(jq -r '.status.rollback.image.imageDigest // empty' <<<"${status_json}")
+last_good=""
+[ -r "${LAST_GOOD}" ] && last_good=$(<"${LAST_GOOD}")
+
+failed=0
+for dir in /usr/lib/bootc-health.d /etc/bootc-health.d; do
+    [ -d "${dir}" ] || continue
+    for check in "${dir}"/*.sh; do
+        [ -x "${check}" ] || continue
+        if out=$(timeout 300 "${check}" 2>&1); then
+            log "PASS $(basename "${check}") ${out}"
+        else
+            log "FAIL $(basename "${check}") ${out}"
+            failed=1
+        fi
+    done
+done
+
+if [ "${failed}" -eq 0 ]; then
+    echo "${booted}" > "${LAST_GOOD}"
+    log "healthy; last-good=${booted}"
+    exit 0
+fi
+
+marker="${STATE_DIR}/rolled-back-${booted#sha256:}"
+if [ -n "${booted}" ] && [ "${booted}" != "${last_good}" ] && [ -n "${rollback}" ] && [ ! -e "${marker}" ]; then
+    log "new image ${booted} is unhealthy; rolling back to ${rollback}"
+    date -Is > "${marker}"
+    bootc rollback && systemctl reboot
+    exit 1
+fi
+
+log "unhealthy, and no automatic rollback (booted=${booted} last-good=${last_good:-none} rollback=${rollback:-none})"
+exit 1

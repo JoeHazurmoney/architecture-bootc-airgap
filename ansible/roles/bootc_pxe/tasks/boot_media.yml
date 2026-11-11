@@ -1,0 +1,114 @@
+---
+# Copy the installer pieces out of the boot ISO. A marker file records which
+# media (ISO checksum or dir path) and transport were installed, so re-runs
+# skip the multi-GB copy until the ISO changes.
+- name: Checksum the boot ISO (identifies the media)
+  ansible.builtin.stat:
+    path: "{{ bootc_pxe_iso_path }}"
+    get_checksum: true
+    checksum_algorithm: sha256
+  register: __bootc_pxe_iso
+  when: bootc_pxe_boot_media_source == 'iso'
+
+- name: Work out the media ID
+  ansible.builtin.set_fact:
+    __bootc_pxe_media_id: >-
+      {{ ('iso:' ~ __bootc_pxe_iso.stat.checksum) if bootc_pxe_boot_media_source == 'iso'
+         else ('dir:' ~ bootc_pxe_media_dir) }}:{{ bootc_pxe_kernel_transport }}
+
+- name: Read the installed-media marker
+  ansible.builtin.slurp:
+    src: "{{ __bootc_pxe_installer_dir }}/.bootc-pxe-media"
+  register: __bootc_pxe_marker
+  failed_when: false
+
+- name: Copy installer media
+  when: >-
+    (__bootc_pxe_marker.content | default('') | b64decode | trim) != __bootc_pxe_media_id
+  block:
+    - name: Loop-mount the boot ISO
+      ansible.posix.mount:
+        path: "{{ __bootc_pxe_iso_mount }}"
+        src: "{{ bootc_pxe_iso_path }}"
+        fstype: iso9660
+        opts: ro,loop
+        state: ephemeral
+      when: bootc_pxe_boot_media_source == 'iso'
+
+    - name: Set the media source path
+      ansible.builtin.set_fact:
+        __bootc_pxe_src: >-
+          {{ __bootc_pxe_iso_mount if bootc_pxe_boot_media_source == 'iso' else bootc_pxe_media_dir }}
+
+    - name: Remove any previous copy of this installer release
+      ansible.builtin.file:
+        path: "{{ __bootc_pxe_installer_dir }}"
+        state: absent
+
+    - name: Create the installer directory
+      ansible.builtin.file:
+        path: "{{ __bootc_pxe_installer_dir }}"
+        state: directory
+        mode: "0755"
+
+    # cp, not copy: install.img is ~1 GB and copy would checksum it on every run.
+    # SELinux contexts are reset by restorecon later (no --preserve=context).
+    - name: Copy kernel, initrd, stage2 and .treeinfo to HTTP
+      ansible.builtin.command:
+        argv:
+          - cp
+          - -r
+          - --preserve=mode,timestamps
+          - "{{ __bootc_pxe_src }}/images"
+          - "{{ __bootc_pxe_src }}/.treeinfo"
+          - "{{ __bootc_pxe_installer_dir }}/"
+      changed_when: true
+
+    - name: Copy shim and GRUB (signed, from the ISO) to TFTP and HTTP
+      ansible.builtin.command:
+        argv:
+          - cp
+          - -r
+          - --preserve=mode,timestamps
+          - -T
+          - "{{ __bootc_pxe_src }}/EFI/BOOT"
+          - "{{ item }}"
+      loop: "{{ __bootc_pxe_efi_dirs }}"
+      changed_when: true
+
+    - name: Copy kernel and initrd to TFTP (tftp transport only)
+      when: bootc_pxe_kernel_transport == 'tftp'
+      block:
+        - name: Create the TFTP installer directory
+          ansible.builtin.file:
+            path: "{{ __bootc_pxe_tftp_dir }}/installer/{{ bootc_pxe_installer_release }}"
+            state: directory
+            mode: "0755"
+
+        - name: Copy vmlinuz and initrd.img to TFTP
+          ansible.builtin.command:
+            argv:
+              - cp
+              - --preserve=mode,timestamps
+              - "{{ __bootc_pxe_src }}/images/pxeboot/vmlinuz"
+              - "{{ __bootc_pxe_src }}/images/pxeboot/initrd.img"
+              - "{{ __bootc_pxe_tftp_dir }}/installer/{{ bootc_pxe_installer_release }}/"
+          changed_when: true
+
+    - name: Make media world-readable (ISO files are read-only)
+      ansible.builtin.command:
+        argv: [chmod, -R, "u+w,a+rX", "{{ __bootc_pxe_installer_dir }}", "{{ __bootc_pxe_efi_dirs[0] }}", "{{ __bootc_pxe_efi_dirs[1] }}"]
+      changed_when: true
+
+    - name: Write the media marker
+      ansible.builtin.copy:
+        dest: "{{ __bootc_pxe_installer_dir }}/.bootc-pxe-media"
+        content: "{{ __bootc_pxe_media_id }}\n"
+        mode: "0644"
+
+  always:
+    - name: Unmount the boot ISO
+      ansible.posix.mount:
+        path: "{{ __bootc_pxe_iso_mount }}"
+        state: unmounted
+      when: bootc_pxe_boot_media_source == 'iso'

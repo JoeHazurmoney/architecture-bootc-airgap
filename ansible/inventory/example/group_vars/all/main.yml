@@ -1,0 +1,16 @@
+---
+# Shared by the PXE server, build host and fleet.
+bootc_registry: registry.prov.example.internal:8443
+bootc_release: "10.2"
+bootc_images:
+  server:
+    repository: bootc/server
+    tag: stable
+  workstation:
+    repository: bootc/workstation
+    tag: stable
+
+# Public half of the internal registry CA (not a secret)
+bootc_registry_ca: "{{ lookup('ansible.builtin.file', inventory_dir ~ '/files/registry-ca.crt', errors='ignore') | default('', true) }}"
+# Pull secret: define in vault.yml (see vault.yml.example)
+bootc_registry_auth: "{{ vault_bootc_registry_auth | default({}) }}"

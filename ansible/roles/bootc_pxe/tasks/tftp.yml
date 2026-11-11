@@ -1,0 +1,41 @@
+---
+- name: Create TFTP directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - "{{ bootc_pxe_tftp_root }}"
+    - "{{ __bootc_pxe_tftp_dir }}"
+    - "{{ __bootc_pxe_tftp_dir }}/EFI/BOOT"
+    - "{{ __bootc_pxe_tftp_dir }}/EFI/BOOT/hosts"
+
+- name: Point tftp.service at a non-default root
+  when: bootc_pxe_tftp_root != '/var/lib/tftpboot'
+  block:
+    - name: Create the tftp.service drop-in directory
+      ansible.builtin.file:
+        path: /etc/systemd/system/tftp.service.d
+        state: directory
+        mode: "0755"
+
+    - name: Write the tftp.service drop-in
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/tftp.service.d/50-bootc-pxe.conf
+        mode: "0644"
+        content: |
+          # Managed by Ansible (bootc_pxe)
+          [Service]
+          ExecStart=
+          ExecStart=/usr/sbin/in.tftpd -s {{ bootc_pxe_tftp_root }}
+      notify: Restart tftp
+
+- name: Enable TFTP (socket-activated)
+  ansible.builtin.systemd_service:
+    name: tftp.socket
+    enabled: true
+    state: started
+    daemon_reload: true
+  when: bootc_pxe_manage_services | bool

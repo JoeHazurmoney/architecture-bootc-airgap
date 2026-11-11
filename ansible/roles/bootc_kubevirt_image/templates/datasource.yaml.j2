@@ -1,0 +1,13 @@
+apiVersion: cdi.kubevirt.io/v1beta1
+kind: DataSource
+metadata:
+  name: {{ bootc_kubevirt_name }}
+  namespace: {{ bootc_kubevirt_namespace }}
+  labels:
+    app.kubernetes.io/part-of: bootc
+    bootc.dev/version: "{{ bootc_kubevirt_version }}"
+spec:
+  source:
+    pvc:
+      name: {{ __dv_name }}
+      namespace: {{ bootc_kubevirt_namespace }}

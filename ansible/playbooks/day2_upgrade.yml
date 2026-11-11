@@ -1,0 +1,15 @@
+---
+# Rolling upgrade: one canary, then 25% batches. Any failure stops the rollout.
+# A host whose new image fails its health check rolls itself back.
+#   ansible-playbook playbooks/day2_upgrade.yml
+#   ansible-playbook playbooks/day2_upgrade.yml -l bootc_servers -e bootc_lifecycle_expected_digest=sha256:...
+#   ansible-playbook playbooks/day2_upgrade.yml -e bootc_lifecycle_reboot=false     # stage only
+- name: Upgrade bootc hosts to the newest image on their channel
+  hosts: bootc_fleet
+  gather_facts: false
+  serial: "{{ day2_serial | default([1, '25%']) }}"
+  max_fail_percentage: 0
+  roles:
+    - role: bootc_lifecycle
+      vars:
+        bootc_lifecycle_action: upgrade

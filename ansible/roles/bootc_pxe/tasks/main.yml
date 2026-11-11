@@ -1,0 +1,47 @@
+---
+- name: Preflight checks
+  ansible.builtin.import_tasks: preflight.yml
+  tags: [bootc_pxe, bootc_pxe_preflight]
+
+- name: Install packages
+  ansible.builtin.import_tasks: packages.yml
+  tags: [bootc_pxe, bootc_pxe_packages]
+
+- name: TFTP service and layout
+  ansible.builtin.import_tasks: tftp.yml
+  tags: [bootc_pxe, bootc_pxe_tftp]
+
+- name: HTTP service and layout
+  ansible.builtin.import_tasks: http.yml
+  tags: [bootc_pxe, bootc_pxe_http]
+
+- name: Installer boot media (kernel, initrd, stage2, shim, GRUB)
+  ansible.builtin.import_tasks: boot_media.yml
+  tags: [bootc_pxe, bootc_pxe_media]
+
+- name: GRUB menus (with per-MAC zero-touch entries)
+  ansible.builtin.import_tasks: grub.yml
+  tags: [bootc_pxe, bootc_pxe_grub]
+
+- name: Kickstarts
+  ansible.builtin.import_tasks: kickstart.yml
+  tags: [bootc_pxe, bootc_pxe_kickstart]
+
+- name: Registry trust (CA and pull secret for the installer)
+  ansible.builtin.import_tasks: registry_trust.yml
+  tags: [bootc_pxe, bootc_pxe_trust]
+
+- name: DHCP snippets, proxy, or full mode
+  ansible.builtin.import_tasks: dhcp.yml
+  tags: [bootc_pxe, bootc_pxe_dhcp]
+
+- name: Firewall and SELinux
+  ansible.builtin.import_tasks: firewall_selinux.yml
+  tags: [bootc_pxe, bootc_pxe_firewall]
+
+- name: Flush handlers before verification
+  ansible.builtin.meta: flush_handlers
+
+- name: Verify the server
+  ansible.builtin.import_tasks: verify.yml
+  tags: [bootc_pxe, bootc_pxe_verify]
