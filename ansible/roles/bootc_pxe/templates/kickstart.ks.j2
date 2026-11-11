@@ -35,7 +35,9 @@ part / --grow --fstype=xfs
 
 # --- The OS: pull the bootc image straight onto disk ------------------------
 {% if directive == 'bootc' %}
-bootc --source-imgref=registry:{{ install_ref }}{% if digest %} --target-imgref={{ track_ref }}{% endif %}
+{# --target-imgref always: left out, it defaults to the source string with its
+   "registry:" prefix, and `bootc upgrade` on the host fails to parse it. #}
+bootc --source-imgref=registry:{{ install_ref }} --target-imgref={{ track_ref }}
 
 {% else %}
 ostreecontainer --url={{ install_ref }} --transport=registry{% if not bootc_pxe_signature_verification %} --no-signature-verification{% endif %}
@@ -71,6 +73,9 @@ chmod 0600 /etc/ostree/auth.json
 # --- Installed system --------------------------------------------------------
 %post --log=/root/bootc-ks-post.log
 set -eux
+# A text-mode install links /etc default.target to multi-user.target, which would
+# override the image (the workstation image boots to graphical.target). The image decides.
+rm -f /etc/systemd/system/default.target
 {% if bootc_pxe_registry_auth | length > 0 %}
 # Pull secret for later `bootc upgrade` (the registry CA is baked into the image)
 mkdir -p /etc/ostree

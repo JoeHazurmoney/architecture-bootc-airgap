@@ -8,7 +8,6 @@
     {{ [__bootc_pxe_installer_url ~ '/images/pxeboot/vmlinuz',
         __bootc_pxe_installer_url ~ '/images/pxeboot/initrd.img',
         __bootc_pxe_installer_url ~ '/images/install.img',
-        __bootc_pxe_installer_url ~ '/.treeinfo',
         bootc_pxe_http_url ~ '/EFI/BOOT/grub.cfg',
         bootc_pxe_http_url ~ '/EFI/BOOT/' ~ __bootc_pxe_efi_loader]
        + (bootc_pxe_images.keys() | map('regex_replace', '^(.*)$', bootc_pxe_http_url ~ '/ks/\1.ks') | list) }}

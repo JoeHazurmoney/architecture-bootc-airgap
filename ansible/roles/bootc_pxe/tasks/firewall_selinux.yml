@@ -1,4 +1,22 @@
 ---
+- name: Make sure firewalld is running
+  when: bootc_pxe_manage_firewall | bool
+  block:
+    - name: Enable firewalld
+      ansible.builtin.systemd_service:
+        name: firewalld
+        enabled: true
+        state: started
+
+    - name: Wait for firewalld to answer on D-Bus
+      ansible.builtin.command:
+        argv: [firewall-cmd, --state]
+      register: __bootc_pxe_fw_state
+      until: __bootc_pxe_fw_state.rc == 0
+      retries: 15
+      delay: 2
+      changed_when: false
+
 - name: Open firewalld services
   ansible.posix.firewalld:
     service: "{{ item }}"

@@ -42,10 +42,14 @@
   changed_when: true
   when: bootc_lifecycle_state.staged_digest | length > 0
 
+# set_fact, not include vars: those are lazy, and reboot_and_verify re-reads
+# bootc status after the reboot, when nothing is staged any more.
+- name: Remember the staged digest
+  ansible.builtin.set_fact:
+    __bootc_target_digest: "{{ bootc_lifecycle_state.staged_digest }}"
+
 - name: Reboot into the staged image and verify
   ansible.builtin.include_tasks: reboot_and_verify.yml
-  vars:
-    __bootc_target_digest: "{{ bootc_lifecycle_state.staged_digest }}"
   when:
     - bootc_lifecycle_state.staged_digest | length > 0
     - bootc_lifecycle_reboot | bool

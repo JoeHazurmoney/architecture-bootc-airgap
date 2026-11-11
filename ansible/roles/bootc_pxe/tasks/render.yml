@@ -39,12 +39,23 @@
     ks_host: "{{ item }}"
   delegate_to: localhost
 
-- name: Render GRUB entry and menu
+- name: Render GRUB entry (grub.cfg for TFTP, grub-http.cfg for UEFI HTTP Boot)
   ansible.builtin.template:
-    src: "{{ item }}.j2"
-    dest: "{{ __render_out }}/EFI/BOOT/{{ item | regex_replace('^grub-menu', 'menu') }}"
+    src: grub.cfg.j2
+    dest: "{{ __render_out }}/EFI/BOOT/{{ 'grub.cfg' if item.proto == 'tftp' else 'grub-' ~ item.proto ~ '.cfg' }}"
     mode: "0644"
-  loop: [grub.cfg, grub-menu.cfg]
+  loop: "{{ __bootc_pxe_grub_entries }}"
+  loop_control:
+    label: "{{ item.proto }}"
+  vars:
+    grub_prefix_path: "{{ item.path }}"
+  delegate_to: localhost
+
+- name: Render GRUB menu
+  ansible.builtin.template:
+    src: grub-menu.cfg.j2
+    dest: "{{ __render_out }}/EFI/BOOT/menu.cfg"
+    mode: "0644"
   delegate_to: localhost
 
 - name: Render per-host GRUB configs

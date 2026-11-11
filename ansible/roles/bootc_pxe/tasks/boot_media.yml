@@ -53,16 +53,30 @@
 
     # cp, not copy: install.img is ~1 GB and copy would checksum it on every run.
     # SELinux contexts are reset by restorecon later (no --preserve=context).
-    - name: Copy kernel, initrd, stage2 and .treeinfo to HTTP
+    - name: Copy kernel, initrd and stage2 to HTTP
       ansible.builtin.command:
         argv:
           - cp
           - -r
           - --preserve=mode,timestamps
           - "{{ __bootc_pxe_src }}/images"
-          - "{{ __bootc_pxe_src }}/.treeinfo"
           - "{{ __bootc_pxe_installer_dir }}/"
       changed_when: true
+
+    # RHEL boot ISOs ship .treeinfo; some rebuilds (AlmaLinux) only .discinfo.
+    # Anaconda only needs images/install.img under inst.stage2.
+    - name: Find media metadata files
+      ansible.builtin.find:
+        paths: "{{ __bootc_pxe_src }}"
+        patterns: [.treeinfo, .discinfo]
+        hidden: true
+      register: __bootc_pxe_media_meta
+
+    - name: Copy media metadata files
+      ansible.builtin.command:
+        argv: "{{ ['cp', '--preserve=mode,timestamps'] + (__bootc_pxe_media_meta.files | map(attribute='path') | list) + [__bootc_pxe_installer_dir ~ '/'] }}"
+      changed_when: true
+      when: __bootc_pxe_media_meta.files | length > 0
 
     - name: Copy shim and GRUB (signed, from the ISO) to TFTP and HTTP
       ansible.builtin.command:

@@ -107,6 +107,15 @@
         enabled: true
         state: started
 
+    - name: Wait for firewalld to answer on D-Bus (a just-started daemon races the module)
+      ansible.builtin.command:
+        argv: [firewall-cmd, --state]
+      register: __fw_state
+      until: __fw_state.rc == 0
+      retries: 15
+      delay: 2
+      changed_when: false
+
     - name: Put the lab interface in the internal zone (uplink stays in public)
       ansible.posix.firewalld:
         interface: "{{ lab_iface }}"
@@ -114,6 +123,34 @@
         permanent: true
         immediate: true
         state: enabled
+
+    # NetworkManager owns the interface: on `firewall-cmd --reload` firewalld takes
+    # the zone from the NM connection, and an empty one means the default zone
+    # (public). lab_airgap.yml then cut the PXE VM off from its own clients.
+    - name: Find the lab interface's NetworkManager connection
+      ansible.builtin.command:
+        argv: [nmcli, -g, GENERAL.CONNECTION, device, show, "{{ lab_iface }}"]
+      register: __lab_con
+      changed_when: false
+
+    - name: Read that connection's zone
+      ansible.builtin.command:
+        argv: [nmcli, -g, connection.zone, connection, show, "{{ __lab_con.stdout }}"]
+      register: __lab_con_zone
+      changed_when: false
+
+    - name: Pin the internal zone in NetworkManager
+      when: __lab_con_zone.stdout != 'internal'
+      block:
+        - name: Set connection.zone=internal
+          ansible.builtin.command:
+            argv: [nmcli, connection, modify, "{{ __lab_con.stdout }}", connection.zone, internal]
+          changed_when: true
+
+        - name: Apply it without bouncing the link
+          ansible.builtin.command:
+            argv: [nmcli, device, reapply, "{{ lab_iface }}"]
+          changed_when: true
 
     - name: Open the registry port on the lab side
       ansible.posix.firewalld:
@@ -123,12 +160,21 @@
         immediate: true
         state: enabled
 
+    # /etc/bootc-build holds auth.json: 0700, as bootc_image_build sets it
+    # (a different mode here flips it back and forth on every run).
     - name: Registry directories
       ansible.builtin.file:
-        path: "{{ item }}"
+        path: "{{ item.path }}"
         state: directory
-        mode: "0750"
-      loop: [/srv/registry/data, /srv/registry/certs, /srv/registry/auth, /srv/iso]
+        mode: "{{ item.mode | default('0750') }}"
+      loop:
+        - {path: /srv/registry/data}
+        - {path: /srv/registry/certs}
+        - {path: /srv/registry/auth}
+        - {path: /srv/iso}
+        - {path: /etc/bootc-build, mode: "0700"}
+      loop_control:
+        label: "{{ item.path }}"
 
     - name: Registry TLS files
       ansible.builtin.copy:
@@ -255,7 +301,7 @@
         argv: >-
           {{ ['podman', 'run', '--rm', '-v', '/srv/lab-repo:/out:Z',
               lab_registry ~ '/mirror/almalinux-bootc:' ~ item,
-              'dnf', '-y', '-q', 'download', '--resolve', '--destdir', '/out']
+              'dnf', '-y', '-q', 'install', '--downloadonly', '--destdir', '/out']
              + lab_repo_packages }}
         creates: /srv/lab-repo/.done-{{ item }}
       environment:
@@ -282,9 +328,12 @@
         state: directory
         mode: "0755"
 
+    # repodata/ is generated in the destination by the handler, so --delete must
+    # leave it alone; createrepo also touches the top dir, hence --omit-dir-times.
     - name: Publish the mirror under the PXE web root
       ansible.builtin.command:
-        argv: [rsync, -a, --delete, --exclude=.done-*, --itemize-changes, /srv/lab-repo/, "{{ lab_repo_dir }}/"]
+        argv: [rsync, -a, --delete, --exclude=.done-*, --exclude=repodata/, --omit-dir-times,
+               --itemize-changes, /srv/lab-repo/, "{{ lab_repo_dir }}/"]
       register: __repo_sync
       changed_when: __repo_sync.stdout | length > 0
       notify: Build repo metadata
@@ -326,8 +375,10 @@
       changed_when: false
       failed_when: false
 
+    # -e lab_rebuild_v1=true rebuilds v1.0 from the current repo (for example after
+    # an image fix) and promotes it; the old stable is kept as stable-previous.
     - name: Build v1.0 and promote it
-      when: __stable.rc != 0
+      when: __stable.rc != 0 or (lab_rebuild_v1 | default(false) | bool)
       block:
         - name: Build v1.0
           ansible.builtin.include_role:

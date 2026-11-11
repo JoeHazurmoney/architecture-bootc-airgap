@@ -89,7 +89,8 @@ holds the host's state.
 | Symptom | Look at |
 | --- | --- |
 | No DHCP offer with a filename | option 93 match in the DHCP server; `log-dhcp` in dnsmasq modes |
+| `shim` loads, then nothing (TFTP shows a request for `grubx64.efi` at the **root**) | The DHCP server sent the filename only as option 67. shim reads the BOOTP `file` field to find its directory. dnsmasq: `dhcp-no-override` (the role sets it). Kea `boot-file-name` and ISC `filename` already fill the field |
 | `shim` loads, then "Failed to open \EFI\BOOT\grubx64.efi" | TFTP root/permissions; SELinux context (`restorecon -Rv /var/lib/tftpboot`) |
-| GRUB prompt instead of a menu | `grub.cfg` next to `grubx64.efi`; per-host file name is the MAC in lowercase with colons |
+| GRUB prompt instead of a menu | `grub.cfg` next to `grubx64.efi`; per-host file name is the MAC in lowercase with colons. If TFTP shows `grub.cfg` but no `hosts/` or `menu.cfg` request, `$prefix` is wrong: signed GRUB's built-in prefix is `/EFI/BOOT`, so `grub.cfg` must `set prefix` to its own directory (the role does). Also, `[ -f ... ]` is always false over TFTP/HTTP, so `grub.cfg` must not use it |
 | Installer can't fetch the image | Anaconda console (Alt+F2): `cat /tmp/bootc-ks-pre.log`; CA in `/etc/containers/certs.d/<registry>/`; `/etc/ostree/auth.json` |
 | Installed, but `bootc upgrade` gets 401 | `/etc/ostree/auth.json` on the host (from Kickstart `%post`) |

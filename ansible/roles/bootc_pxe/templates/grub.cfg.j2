@@ -2,7 +2,16 @@
 # Entry point loaded by grubx64.efi. A known MAC loads its host file
 # (zero-touch). Anything else gets the full menu, which defaults to the local disk.
 set timeout={{ bootc_pxe_menu_timeout }}
-if [ -n "${net_default_mac}" -a -f "${prefix}/hosts/${net_default_mac}.cfg" ]; then
+
+# Signed GRUB finds this file next to itself, but its built-in $prefix is
+# ($root)/EFI/BOOT. Point $prefix at this directory before using it.
+set prefix="(${root}){{ grub_prefix_path }}"
+export prefix
+
+# No `[ -f ... ]` here: test -f can't see files over TFTP/HTTP (GRUB can't list
+# a network directory), so it is always false. Load the host file directly; for
+# an unknown MAC that fails with "file not found" and we fall through to the menu.
+if [ -n "${net_default_mac}" ]; then
   configfile "${prefix}/hosts/${net_default_mac}.cfg"
 fi
 configfile "${prefix}/menu.cfg"

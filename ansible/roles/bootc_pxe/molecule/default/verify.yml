@@ -41,6 +41,8 @@
         - /var/www/bootc/ks/hosts/mol-srv01.ks
         - /var/lib/tftpboot/bootc/EFI/BOOT/hosts/02:00:77:00:01:02.cfg
         - /etc/dnsmasq.d/bootc-pxe.conf
+        - /var/lib/tftpboot/bootc/EFI/BOOT/grub.cfg
+        - /var/www/bootc/EFI/BOOT/grub.cfg
       register: __files
 
     - name: Content is what the inventory asked for
@@ -53,11 +55,17 @@
           - "'set default=\"local\"' in ws_grub"
           - "'dhcp-host=02:00:77:00:01:01,10.77.0.101,mol-srv01' in dnsmasq"
           - "'interface=bootc0' in dnsmasq"
+          # Signed GRUB's built-in prefix is /EFI/BOOT; each grub.cfg points it at its own dir.
+          - "'set prefix=\"(${root})/bootc/EFI/BOOT\"' in tftp_grub"
+          - "'set prefix=\"(${root})/bootc/EFI/BOOT\"' in http_grub"
+          - "'-f \"${prefix}' not in tftp_grub"
       vars:
         ws_ks: "{{ __files.results[0].content | b64decode }}"
         srv_ks: "{{ __files.results[1].content | b64decode }}"
         ws_grub: "{{ __files.results[2].content | b64decode }}"
         dnsmasq: "{{ __files.results[3].content | b64decode }}"
+        tftp_grub: "{{ __files.results[4].content | b64decode }}"
+        http_grub: "{{ __files.results[5].content | b64decode }}"
 
     - name: Kickstarts pass ksvalidator (RHEL10 grammar)
       ansible.builtin.command:

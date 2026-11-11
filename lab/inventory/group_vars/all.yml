@@ -8,10 +8,8 @@ lab_pxe_ip: 10.77.0.10
 lab_registry: "{{ lab_pxe_ip }}:5000"
 lab_registry_user: bootc
 lab_registry_password: "{{ lookup('ansible.builtin.password', lab_secrets_dir ~ '/registry-password', length=24, chars=['ascii_letters', 'digits']) }}"
-lab_registry_auth:
-  auths:
-    "{{ lab_registry }}":
-      auth: "{{ (lab_registry_user ~ ':' ~ lab_registry_password) | b64encode }}"
+# Built as one expression: Ansible doesn't template YAML dict keys
+lab_registry_auth: "{{ {'auths': {lab_registry: {'auth': (lab_registry_user ~ ':' ~ lab_registry_password) | b64encode}}} }}"
 lab_registry_ca: "{{ lookup('ansible.builtin.file', lab_secrets_dir ~ '/lab-ca.crt', errors='ignore') | default('', true) }}"
 
 lab_admin_pubkey: "{{ lookup('ansible.builtin.file', lab_secrets_dir ~ '/id_ed25519.pub', errors='ignore') | default('', true) }}"

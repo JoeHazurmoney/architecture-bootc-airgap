@@ -52,15 +52,23 @@
     timeout: "{{ bootc_lifecycle_reboot_timeout }}"
   when: __bootc_health is unreachable or __bootc_health is failed
 
+# Registers its own variable: a skipped task still overwrites its register
+# (with no stdout), which would hide the first result on the normal path.
 - name: Wait for the health check result (after an automatic rollback)
   ansible.builtin.command:
     argv: [systemctl, show, -p, ActiveState, --value, "{{ bootc_lifecycle_health_unit }}"]
-  register: __bootc_health
-  until: __bootc_health.stdout in ['active', 'failed']
+  register: __bootc_health_after_rollback
+  until: __bootc_health_after_rollback.stdout in ['active', 'failed']
   retries: "{{ (bootc_lifecycle_health_timeout | int / 10) | int }}"
   delay: 10
   changed_when: false
   when: __bootc_health is unreachable or __bootc_health is failed
+
+- name: Settle the health check result
+  ansible.builtin.set_fact:
+    __bootc_health_state: >-
+      {{ (__bootc_health_after_rollback if __bootc_health_after_rollback is not skipped
+          else __bootc_health).stdout | default('unknown') }}
 
 - name: Read bootc status (after reboot)
   ansible.builtin.include_tasks: status.yml
@@ -76,10 +84,10 @@
   ansible.builtin.assert:
     that:
       - bootc_lifecycle_state.booted_digest == __bootc_target_digest
-      - __bootc_health.stdout == 'active'
+      - __bootc_health_state == 'active'
     fail_msg: |-
       Expected to boot {{ __bootc_target_digest }}; booted {{ bootc_lifecycle_state.booted_digest }}.
-      Health check: {{ __bootc_health.stdout }}.
+      Health check: {{ __bootc_health_state }}.
       {{ 'The new image failed its health check and the host rolled back on its own.'
          if bootc_lifecycle_state.booted_digest != __bootc_target_digest else '' }}
       {{ __bootc_health_log.stdout }}

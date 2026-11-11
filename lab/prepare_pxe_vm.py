@@ -111,7 +111,10 @@ growpart:
 # hyperv-daemons: KVP reports the VM's IPs to Hyper-V (Get-VMNetworkAdapter)
 packages: [hyperv-daemons, podman, rsync, tar, git]
 runcmd:
-  - [systemctl, enable, --now, hypervkvpd.service]
+  # hypervkvpd is udev-started; its rule arrived after boot, so re-trigger first
+  - [udevadm, trigger, --subsystem-match=misc, --action=add]
+  - [udevadm, settle]
+  - [systemctl, start, hypervkvpd.service]
 """)
     (SEED / "network-config").write_text(f"""version: 2
 ethernets:
