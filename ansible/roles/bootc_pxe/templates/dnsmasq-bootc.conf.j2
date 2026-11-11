@@ -3,6 +3,10 @@
 # DNS off: this dnsmasq does DHCP / proxy-DHCP only. TFTP is tftp-server.
 port=0
 log-dhcp
+# Put the boot filename in the BOOTP "file" field, not only option 67: shim
+# takes its directory from that field, and without it fetches grubx64.efi
+# from the TFTP root (found in the Hyper-V lab).
+dhcp-no-override
 {% if bootc_pxe_dhcp_interface %}
 interface={{ bootc_pxe_dhcp_interface }}
 bind-interfaces
