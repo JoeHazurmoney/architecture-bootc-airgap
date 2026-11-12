@@ -56,14 +56,18 @@ jobs:
     needs: lint-render
     steps:
       - uses: actions/checkout@v5
+      # podman, not docker: oscap-im only runs in a podman/buildah build
+      # ("supposed to be used only in the bootable container build environment")
       - name: Build server, then the STIG layer on it (oscap-im, then bootc container lint)
-        run: make stig-images ENGINE=docker VERSION=ci-${{ github.run_number }}
+        run: |
+          podman --version
+          make stig-images ENGINE=podman VERSION=ci-${{ github.run_number }}
       # Scanned from inside the image: a quick regression gate for the build.
       # Container context marks some rules notapplicable; the lab scans real hosts.
       - name: Scan the hardened image with its own scanner and tailoring
         run: |
           mkdir -p artifacts/stig
-          docker run --rm -v "$PWD/artifacts/stig:/out" \
+          podman run --rm -v "$PWD/artifacts/stig:/out" \
             localhost/bootc/server-stig:ci-${{ github.run_number }} sh -c '
               . /usr/share/bootc-stig/profile.env
               oscap xccdf eval --profile "$TAILORED_PROFILE" \

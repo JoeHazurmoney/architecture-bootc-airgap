@@ -175,6 +175,7 @@ production too.
 | A STIG setting in `/etc/dnf/dnf.conf` disappeared | The build restored a backup of `dnf.conf` after hardening, which undid OpenSCAP's change | Remove only the line the build added |
 | AIDE baseline missing on hosts | An image's `/var` content isn't copied at install | `bootc-aide-init.service` creates the baseline on first boot |
 | Boot loader password | Image mode's boot loader config (bootupd) reads `/boot/grub2/user.cfg` but names the superuser `root` | The Kickstart writes `user.cfg` from `bootc_pxe_grub_password_hash`. The superuser name is an exception (RHEL-10-600010). |
+| `oscap-im` stops with "supposed to be used only in the bootable container build environment" | It runs only in a **podman/buildah** build, not a Docker one | Build the STIG layer with podman: the lab build host and the CI `stig-image` job both do |
 | One `sshkey` per user | Kickstart (`ksvalidator`) refuses a second `sshkey` line for the same user | One key in Kickstart. Add more through IdM or `%post`. |
 | Ansible `become` needs a password | STIG forbids `NOPASSWD` sudo | `ansible_become_password` from a vault. `bootc_pxe` refuses a STIG install without a password hash. |
 
