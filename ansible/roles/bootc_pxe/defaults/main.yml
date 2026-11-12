@@ -26,6 +26,12 @@ bootc_pxe_allowed_networks:
 
 # --- Images and registry
 bootc_pxe_registry: registry.example.internal:5000
+# Per image: repository + tag (or digest). Optional:
+#   stig: true          STIG install: FIPS installer (fips=1), the STIG disk layout
+#                       below, and a password-protected admin (no NOPASSWD sudo)
+#   fips: true|false    override FIPS for the installer (default: stig)
+#   partitioning: |     raw Kickstart partitioning for this image (default:
+#                       bootc_pxe_partitioning_stig if stig, else bootc_pxe_partitioning)
 bootc_pxe_images:
   server:
     repository: bootc/server
@@ -34,7 +40,8 @@ bootc_pxe_images:
     repository: bootc/workstation
     tag: stable
 # ostreecontainer works on RHEL 10.0+. bootc (--source-imgref) is the newer
-# Kickstart command (RHEL 10.2+ Anaconda).
+# Kickstart command (RHEL 10.2+ Anaconda); as of 10.2 it can't create extra
+# mount points, so STIG images (separate /tmp, /var/log, ...) need ostreecontainer.
 bootc_pxe_ks_directive: ostreecontainer
 bootc_pxe_signature_verification: false           # true once images are signed with a policy
 bootc_pxe_registry_ca: ""                         # PEM text; empty = public CA / already trusted
@@ -46,10 +53,29 @@ bootc_pxe_ks_keyboard: us
 bootc_pxe_ks_timezone: UTC
 bootc_pxe_default_disk: ""                        # menu installs; "" = all disks (wipes them)
 bootc_pxe_partitioning: ""                        # raw Kickstart partitioning; "" = reqpart + / xfs
+# DISA STIG disk layout (docs/stig/): separate /var, /var/log, /var/log/audit,
+# /var/tmp, /tmp and /var/home (image mode's /home), with the STIG mount options
+# (RHEL-10-000520..000570, RHEL-10-400355..400410, RHEL-10-700120..700195).
+# Sizes fit a 60 GB disk. / holds the OS images (ostree), so it stays the largest.
+bootc_pxe_partitioning_stig: |
+  part /boot/efi --fstype=efi --size=600 --fsoptions="umask=0077,shortname=winnt,nosuid"
+  part /boot --fstype=xfs --size=1024 --fsoptions="nodev,nosuid"
+  part pv.01 --size=1 --grow
+  volgroup vg_os pv.01
+  logvol / --vgname=vg_os --name=root --fstype=xfs --size=20480
+  logvol /var --vgname=vg_os --name=var --fstype=xfs --size=8192 --fsoptions="nodev"
+  logvol /var/log --vgname=vg_os --name=varlog --fstype=xfs --size=4096 --fsoptions="nodev,nosuid,noexec"
+  logvol /var/log/audit --vgname=vg_os --name=audit --fstype=xfs --size=4096 --fsoptions="nodev,nosuid,noexec"
+  logvol /var/tmp --vgname=vg_os --name=vartmp --fstype=xfs --size=2048 --fsoptions="nodev,nosuid,noexec"
+  logvol /tmp --vgname=vg_os --name=tmp --fstype=xfs --size=2048 --fsoptions="nodev,nosuid,noexec"
+  logvol /var/home --vgname=vg_os --name=home --fstype=xfs --size=4096 --fsoptions="nodev,nosuid,noexec"
 bootc_pxe_admin_user: sysadmin
 bootc_pxe_admin_ssh_keys: []
 bootc_pxe_admin_password_hash: ""                 # SHA-512 crypt; "" = key-only, NOPASSWD sudo
 bootc_pxe_disable_cloud_init_on_metal: true
+# GRUB PBKDF2 hash (grub2-mkpasswd-pbkdf2) for the boot loader password that
+# STIG images get (RHEL-10-600000). Vault it. "" = no boot loader password.
+bootc_pxe_grub_password_hash: ""
 bootc_pxe_ks_extra_post: ""
 bootc_pxe_reboot_after_install: true
 bootc_pxe_kernel_args: ""                         # extra installer args, e.g. console=ttyS0
@@ -67,6 +93,10 @@ bootc_pxe_bios_support: false                     # legacy BIOS via grub2-mknetd
 #   ip: 10.77.0.101              (DHCP reservation; dhcp_mode full only)
 #   image_tag: testing           (optional override; or image_digest: sha256:...)
 #   ks_directive: bootc          (optional per-host override)
+#   ks_url: http://…/legacy.ks   (optional: install with YOUR Kickstart instead of a
+#                                 bootc profile, e.g. legacy RPM hosts during a migration;
+#                                 profile is then not used and no Kickstart is rendered)
+#   kernel_args: inst.repo=…     (optional extra installer args for this host)
 bootc_pxe_hosts: []
 
 # --- DHCP: snippets (default) | proxy (dnsmasq proxy-DHCP) | full (lab/isolated only)

@@ -14,7 +14,7 @@
     src: kickstart.ks.j2
     dest: "{{ bootc_pxe_http_root }}/ks/hosts/{{ item.name }}.ks"
     mode: "0644"
-  loop: "{{ bootc_pxe_hosts }}"
+  loop: "{{ bootc_pxe_hosts | rejectattr('ks_url', 'defined') | list }}"
   loop_control:
     label: "{{ item.name }}"
   vars:

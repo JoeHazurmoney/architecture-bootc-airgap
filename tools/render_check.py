@@ -13,6 +13,7 @@ Checks:
   * GRUB files have balanced braces and the menu entries we expect; grub.cfg
     sets its own prefix and never uses test -f on a network path
   * the Kea snippet is valid JSON
+  * STIG Kickstarts have the separate STIG file systems and no NOPASSWD sudo
 """
 from __future__ import annotations
 
@@ -71,7 +72,21 @@ def check_kickstart(path: Path) -> list[str]:
     # overriding the image (a workstation would never reach GDM). %post must undo it.
     if "rm -f /etc/systemd/system/default.target" not in text.split("%post", 1)[-1]:
         errors.append(f"{path}: %post must remove Anaconda's default.target so the image decides")
+    # STIG installs carry the separate file systems DISA requires (RHEL-10-000520..000570)
+    # and must not hand out passwordless sudo.
+    if "# STIG profile:" in text:
+        for mount in STIG_MOUNTS:
+            if not re.search(rf"^(part|logvol) {re.escape(mount)} ", text, re.M):
+                errors.append(f"{path}: STIG profile without a separate {mount}")
+        if "NOPASSWD" in text:
+            errors.append(f"{path}: STIG profile must not grant NOPASSWD sudo")
+        # Anaconda's bootc command rejects user-specified mount points (10.2)
+        if re.search(r"^bootc ", text, re.M):
+            errors.append(f"{path}: STIG profile needs ostreecontainer; bootc can't make the STIG mounts")
     return errors
+
+
+STIG_MOUNTS = ["/var", "/var/log", "/var/log/audit", "/var/tmp", "/tmp", "/var/home"]
 
 
 def check_grub(path: Path) -> list[str]:

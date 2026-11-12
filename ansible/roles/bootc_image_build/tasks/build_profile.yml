@@ -16,9 +16,12 @@
           '--build-arg', 'BASE_IMAGE=' ~ __from,
           '--build-arg', 'IMAGE_VERSION=' ~ __bootc_version,
           '--build-arg', 'GIT_SHA=' ~ bootc_build_git_sha]
-         + (bootc_build_args | dict2items | map(attribute='key') | zip(bootc_build_args | dict2items | map(attribute='value'))
+         + (__args | dict2items | map(attribute='key') | zip(__args | dict2items | map(attribute='value'))
             | map('join', '=') | map('regex_replace', '^', '--build-arg=') | list)
          + [__bootc_src] }}
+  vars:
+    # Per-profile build_args (e.g. STIG_PROFILE) win over the global ones
+    __args: "{{ bootc_build_args | combine(__profile.build_args | default({})) }}"
   environment:
     REGISTRY_AUTH_FILE: "{{ bootc_build_authfile }}"
   changed_when: true

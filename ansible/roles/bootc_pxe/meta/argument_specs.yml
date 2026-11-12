@@ -38,6 +38,7 @@ argument_specs:
       bootc_pxe_admin_password_hash: {type: str, no_log: true}
       bootc_pxe_disable_cloud_init_on_metal: {type: bool}
       bootc_pxe_ks_extra_post: {type: str}
+      bootc_pxe_grub_password_hash: {type: str, no_log: true}
       bootc_pxe_reboot_after_install: {type: bool}
       bootc_pxe_kernel_args: {type: str}
       bootc_pxe_menu_timeout: {type: int}
@@ -49,13 +50,15 @@ argument_specs:
         options:
           name: {type: str, required: true}
           mac: {type: str, required: true}
-          profile: {type: str, required: true}
+          profile: {type: str}
           disk: {type: str}
           state: {type: str, choices: [install, reinstall, local], default: install}
           ip: {type: str}
           image_tag: {type: str}
           image_digest: {type: str}
           ks_directive: {type: str, choices: [ostreecontainer, bootc]}
+          ks_url: {type: str}
+          kernel_args: {type: str}
       bootc_pxe_dhcp_mode: {type: str, choices: [snippets, proxy, full]}
       bootc_pxe_dhcp_interface: {type: str}
       bootc_pxe_dhcp_range_start: {type: str}
