@@ -1,0 +1,26 @@
+---
+# Site settings for the Ansible Lockdown RHEL10-STIG role in the lab.
+# Put the production overrides from the RHEL 8 role here (ported to RHEL 10
+# variable names) so the comparison reflects how the site really hardens.
+
+# Time, DNS and log servers: the PXE VM is the only server on the lab network
+rhel10stig_time_synchronization_servers: ["{{ lab_pxe_ip }}"]
+rhel10stig_dns_ip4_servers: ["{{ lab_pxe_ip }}"]
+rhel10stig_rsyslog_remote_server_ip: "{{ lab_pxe_ip }}"
+
+# Boot loader password (RHEL-10-600000): a GRUB PBKDF2 hash of the lab admin
+# password, made once by lab_rpm_lockdown.yml into lab/.lab-secrets/grub-pbkdf2
+rhel10stig_set_boot_pass: true
+rhel10stig_bootloader_salt: ""
+rhel10stig_bootloader_password_hash: "{{ lookup('ansible.builtin.file', lab_secrets_dir ~ '/grub-pbkdf2') }}"
+
+# Lab clients may have no default route, so name the interface for the drop zone
+rhel10stig_custom_firewall_interface: >-
+  {{ [ansible_facts['default_ipv4']['interface']
+      | default(ansible_facts['interfaces'] | reject('equalto', 'lo') | first)] }}
+
+# Run the "disruption-high" controls too. The role is written for clean installs,
+# which this is. Also, with Lockdown's default (false) release 1.2.0 fails on two
+# bugs in that code path (RHEL-10-300010 reads a skipped register; RHEL-10-300040
+# has an unbalanced parenthesis in a condition). Both are still on devel as of 2026-11-11.
+rhel10stig_disruption_high: true

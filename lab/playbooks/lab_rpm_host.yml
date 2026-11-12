@@ -1,0 +1,77 @@
+---
+# STIG comparison host: serve what a traditional RPM install needs, from the
+# PXE VM, the way legacy PXE estates do it.
+#   1. the AlmaLinux 10.2 DVD, loop-mounted under the web root as the
+#      BaseOS/AppStream repo
+#   2. a package-mode Kickstart: FIPS, the STIG disk layout, nothing else.
+#      Hardening comes afterwards, the way the RHEL 8 estate does it today:
+#      the Ansible Lockdown STIG role (lab_rpm_lockdown.yml).
+# bootc_pxe's per-MAC GRUB file for bootc-lab-rpm01 (ks_url in pxe_servers.yml)
+# points the host at that Kickstart. Then, on Windows:
+#   powershell -File lab/hyperv/New-BootcLabClient.ps1 -Profile rpm
+#
+#   lab/run-tools.sh ansible-playbook -i lab/inventory lab/playbooks/lab_rpm_host.yml
+- name: Serve the traditional RPM install for bootc-lab-rpm01
+  hosts: pxe_servers
+  become: true
+  vars:
+    # bootc_pxe's web root (its role default; the role isn't loaded in this play)
+    __http_root: "{{ bootc_pxe_http_root | default('/var/www/bootc') }}"
+    __dvd_mount: "{{ __http_root }}/repos/almalinux-10.2-dvd"
+  tasks:
+    - name: Download the AlmaLinux 10.2 DVD (10 GB; once)
+      ansible.builtin.get_url:
+        url: "{{ lab_dvd_url }}"
+        dest: "{{ lab_dvd_path }}"
+        checksum: "{{ lab_dvd_checksum }}"
+        mode: "0644"
+        timeout: 3600
+
+    - name: Mount point for the DVD repo
+      ansible.builtin.file:
+        path: "{{ __dvd_mount }}"
+        state: directory
+        mode: "0755"
+
+    # Read-only loop mount, labelled so httpd may serve it (iso9660 files
+    # otherwise get a type httpd can't read)
+    - name: Loop-mount the DVD under the web root (persistent)
+      ansible.posix.mount:
+        path: "{{ __dvd_mount }}"
+        src: "{{ lab_dvd_path }}"
+        fstype: iso9660
+        opts: loop,ro,context=system_u:object_r:httpd_sys_content_t:s0
+        state: mounted
+
+    - name: Legacy Kickstart directory
+      ansible.builtin.file:
+        path: "{{ __http_root }}/legacy"
+        state: directory
+        mode: "0755"
+
+    - name: Render the package-mode Kickstart
+      ansible.builtin.template:
+        src: ../files/rpm-stig.ks.j2
+        dest: "{{ __http_root }}/legacy/bootc-lab-rpm01.ks"
+        mode: "0644"
+
+    - name: Validate it with ksvalidator
+      ansible.builtin.command:
+        argv: [ksvalidator, -v, RHEL10, "{{ __http_root }}/legacy/bootc-lab-rpm01.ks"]
+      changed_when: false
+
+    - name: The repo and the Kickstart must be served over HTTP
+      ansible.builtin.uri:
+        url: "{{ item }}"
+        method: HEAD
+      loop:
+        - "{{ lab_dvd_repo_url }}/BaseOS/repodata/repomd.xml"
+        - "{{ lab_dvd_repo_url }}/AppStream/repodata/repomd.xml"
+        - http://{{ lab_pxe_ip }}/bootc/legacy/bootc-lab-rpm01.ks
+
+    - name: Next step
+      ansible.builtin.debug:
+        msg: >-
+          Ready. Create the VM on Windows:
+          powershell -File lab/hyperv/New-BootcLabClient.ps1 -Profile rpm
+          and after it installs, harden it: lab/playbooks/lab_rpm_lockdown.yml

@@ -1,0 +1,10 @@
+---
+# Ansible Lockdown (MindPoint Group) RHEL 10 STIG role: the way the RHEL 8
+# estate is hardened today (RHEL8-STIG, lightly modified), at its RHEL 10
+# release for DISA V1R2. Pinned; bump deliberately. In production this comes
+# from the site's internal fork/mirror, with the site's modifications.
+roles:
+  - name: RHEL10-STIG
+    src: https://github.com/ansible-lockdown/RHEL10-STIG.git
+    scm: git
+    version: "1.2.0"

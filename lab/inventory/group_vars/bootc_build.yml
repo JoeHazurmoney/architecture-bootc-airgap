@@ -9,3 +9,7 @@ bootc_build_bib_image: "{{ lab_registry }}/mirror/bootc-image-builder:lab"
 bootc_build_registry_ca: "{{ lab_registry_ca }}"
 bootc_build_registry_auth: "{{ lab_registry_auth }}"
 bootc_build_disk_convert_vhdx: true
+# RHEL-10-800040: chrony must use the site's time servers. In the lab that's
+# the PXE VM (lab_site.yml lets chrony there serve the lab network).
+bootc_build_args:
+  NTP_SERVERS: "{{ lab_pxe_ip }}"

@@ -1,0 +1,66 @@
+---
+# Trade-study option: build bootc/server-lockdown, i.e. the server image hardened
+# by the Ansible Lockdown RHEL10-STIG role DURING THE IMAGE BUILD (the site's
+# current tool, moved from hosts into the build). Scanned next to server-stig
+# by lab_stig_scan.yml. See docs/stig/trade-study.md.
+#   lab/run-tools.sh ansible-playbook -i lab/inventory lab/playbooks/lab_stig_lockdown_image.yml
+- name: Stage the pinned Lockdown role and its collections into the build context
+  hosts: localhost
+  gather_facts: false
+  vars:
+    __vendor: "{{ playbook_dir }}/../../images/stig-lockdown/vendor"
+  tasks:
+    - name: Install RHEL10-STIG into lab/.roles (git-ignored)
+      ansible.builtin.command:
+        argv: [ansible-galaxy, role, install, -r, "{{ playbook_dir }}/../lockdown/requirements.yml",
+               -p, "{{ playbook_dir }}/../.roles"]
+        creates: "{{ playbook_dir }}/../.roles/RHEL10-STIG/tasks/main.yml"
+
+    - name: Copy the role into images/stig-lockdown/vendor (git-ignored)
+      ansible.posix.synchronize:
+        src: "{{ playbook_dir }}/../.roles/RHEL10-STIG/"
+        dest: "{{ __vendor }}/"
+        delete: true
+        rsync_opts: ["--exclude=.git", "--exclude=.collections", "--exclude=site-vars.yml"]
+
+    - name: Collection directories
+      ansible.builtin.file:
+        path: "{{ __vendor }}/.collections/ansible_collections/{{ item }}"
+        state: directory
+        mode: "0755"
+      loop: [ansible, community]
+
+    - name: Copy the collections it needs (from the tools container)
+      ansible.posix.synchronize:
+        src: /usr/share/ansible/collections/ansible_collections/{{ item }}/
+        dest: "{{ __vendor }}/.collections/ansible_collections/{{ item }}/"
+        delete: true
+      loop: [ansible/posix, community/general]
+
+    # Only the settings that apply inside a build: the role itself skips the
+    # controls a container can't do (FIPS, partitions, grubby, services).
+    - name: Site settings for the build
+      ansible.builtin.copy:
+        dest: "{{ __vendor }}/site-vars.yml"
+        mode: "0644"
+        content: |
+          rhel10stig_time_synchronization_servers: ["{{ lab_pxe_ip }}"]
+          rhel10stig_dns_ip4_servers: ["{{ lab_pxe_ip }}"]
+          rhel10stig_rsyslog_remote_server_ip: "{{ lab_pxe_ip }}"
+          rhel10stig_disruption_high: true
+
+- name: Build bootc/server-lockdown on the current server image
+  hosts: bootc_build
+  become: true
+  vars:
+    lockdown_from_tag: stable
+  roles:
+    - role: bootc_image_build
+      vars:
+        bootc_build_action: build
+        bootc_build_version: "{{ lab_lockdown_version | default('10.2-lab.lockdown') }}"
+        bootc_build_base_image: "{{ bootc_build_registry }}/bootc/server:{{ lockdown_from_tag }}"
+        bootc_build_profiles:
+          - name: server-lockdown
+            repository: bootc/server-lockdown
+            containerfile: stig-lockdown/Containerfile

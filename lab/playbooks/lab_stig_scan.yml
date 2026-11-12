@@ -1,0 +1,293 @@
+---
+# STIG evidence: scan the images in the registry and the running hosts with the
+# same SCAP content and tailoring, then regenerate the finding map and the
+# STIG Viewer checklists (docs/stig/).
+#   lab/run-tools.sh ansible-playbook -i lab/inventory lab/playbooks/lab_stig_scan.yml
+#   ... --tags images     only the registry images
+#   ... --tags hosts      only the running hosts
+#   ... -e stig_scan_tag=testing    scan another channel's images
+#
+# Results: artifacts/stig/<date>/<target>-arf.xml + .html (full reports, git-ignored)
+#          compliance/stig/results/<target>.json (rule results, committed)
+
+- name: Scan the images (oscap-podman, on the build host)
+  hosts: bootc_build
+  become: true
+  tags: [images]
+  vars:
+    stig_scan_tag: stable
+    __out: /var/lib/bootc-build/stig
+    __images:
+      - {target: server-base-image, repo: bootc/server, profile: stig}
+      - {target: server-image, repo: bootc/server-stig, profile: stig}
+      - {target: workstation-image, repo: bootc/workstation-stig, profile: stig_gui}
+  tasks:
+    - name: OpenSCAP tools on the build host (oscap-podman)
+      ansible.builtin.dnf:
+        name: [openscap-utils, scap-security-guide]
+        state: present
+
+    - name: Results directory
+      ansible.builtin.file:
+        path: "{{ __out }}"
+        state: directory
+        mode: "0755"
+
+    - name: Tailoring from git
+      ansible.builtin.copy:
+        src: ../../images/stig/tailoring.xml
+        dest: "{{ __out }}/tailoring.xml"
+        mode: "0644"
+
+    - name: Read the build host's SCAP content version
+      ansible.builtin.command:
+        argv: [rpm, -q, --qf, "%{VERSION}", scap-security-guide]
+      register: __ssg
+      changed_when: false
+
+    - name: The scanner content must match the content the images were built with
+      ansible.builtin.assert:
+        that: __ssg.stdout == (lookup('ansible.builtin.file', '../../compliance/stig/ssg/almalinux10.json') | from_json).ssg_version
+        fail_msg: >-
+          scap-security-guide {{ __ssg.stdout }} on the build host, but the finding map
+          uses {{ (lookup('ansible.builtin.file', '../../compliance/stig/ssg/almalinux10.json') | from_json).ssg_version }}.
+          Update one side so scans and map agree.
+        quiet: true
+
+    - name: Pull the images
+      ansible.builtin.command:
+        argv: [podman, pull, -q, "{{ bootc_build_registry }}/{{ item.repo }}:{{ stig_scan_tag }}"]
+      environment:
+        # bootc_image_build's default (the role isn't loaded in this play)
+        REGISTRY_AUTH_FILE: "{{ bootc_build_authfile | default('/etc/bootc-build/auth.json') }}"
+      loop: "{{ __images }}"
+      loop_control:
+        label: "{{ item.repo }}:{{ stig_scan_tag }}"
+      changed_when: false
+
+    # Exit code 2 = some rules fail: that is a result, not an error.
+    - name: Scan each image
+      ansible.builtin.command:
+        argv:
+          - oscap-podman
+          - "{{ bootc_build_registry }}/{{ item.repo }}:{{ stig_scan_tag }}"
+          - xccdf
+          - eval
+          - --profile
+          - xccdf_org.ssgproject.content_profile_{{ item.profile }}_site
+          - --tailoring-file
+          - "{{ __out }}/tailoring.xml"
+          - --results-arf
+          - "{{ __out }}/{{ item.target }}-arf.xml"
+          - --report
+          - "{{ __out }}/{{ item.target }}.html"
+          - /usr/share/xml/scap/ssg/content/ssg-almalinux10-ds.xml
+      register: __scan
+      failed_when: __scan.rc not in [0, 2]
+      changed_when: false
+      loop: "{{ __images }}"
+      loop_control:
+        label: "{{ item.target }}"
+
+    - name: Fetch the image results
+      ansible.builtin.fetch:
+        src: "{{ __out }}/{{ item.0.target }}{{ item.1 }}"
+        dest: "{{ playbook_dir }}/../../artifacts/stig/{{ now(utc=true, fmt='%Y-%m-%d') }}/"
+        flat: true
+      loop: "{{ __images | product(['-arf.xml', '.html']) | list }}"
+      loop_control:
+        label: "{{ item.0.target }}{{ item.1 }}"
+
+- name: Stage the Lockdown audit for the lab hosts (PXE VM serves it; clients have no internet)
+  hosts: pxe_servers
+  become: true
+  tags: [hosts]
+  vars:
+    __tools: "{{ bootc_pxe_http_root | default('/var/www/bootc') }}/tools"
+  tasks:
+    - name: Lockdown audit content and Goss, pinned
+      when: lab_lockdown_audit | bool
+      block:
+        - name: Tools directory under the web root
+          ansible.builtin.file:
+            path: "{{ __tools }}"
+            state: directory
+            mode: "0755"
+        - name: Goss (the build Lockdown uses)
+          ansible.builtin.get_url:
+            url: "{{ lab_goss_url }}"
+            dest: "{{ __tools }}/goss-linux-amd64"
+            checksum: "{{ lab_goss_checksum }}"
+            mode: "0644"
+        - name: RHEL10-STIG-Audit at the pinned commit
+          ansible.builtin.get_url:
+            url: "{{ lab_lockdown_audit_url }}"
+            dest: "{{ __tools }}/RHEL10-STIG-Audit-{{ lab_lockdown_audit_commit }}.tar.gz"
+            mode: "0644"
+
+- name: Scan the running hosts (oscap xccdf eval)
+  hosts: bootc_fleet:rpm_compare
+  become: true
+  tags: [hosts]
+  vars:
+    __out: /var/lib/bootc-stig-scan
+    __target: >-
+      {{ {'bootc-lab-srv01': 'server-host', 'bootc-lab-ws01': 'workstation-host',
+          'bootc-lab-rpm01': 'rpm-host'}[inventory_hostname] }}
+    __profile: "{{ 'stig_gui' if inventory_hostname in groups['bootc_workstations'] else 'stig' }}"
+  tasks:
+    - name: Results directory
+      ansible.builtin.file:
+        path: "{{ __out }}"
+        state: directory
+        mode: "0700"
+
+    # Same tailoring everywhere: the bootc images carry it in /usr/share/bootc-stig/;
+    # the RPM host gets the copy from git.
+    - name: Tailoring from git
+      ansible.builtin.copy:
+        src: ../../images/stig/tailoring.xml
+        dest: "{{ __out }}/tailoring.xml"
+        mode: "0600"
+
+    - name: Scan
+      ansible.builtin.command:
+        argv:
+          - oscap
+          - xccdf
+          - eval
+          - --profile
+          - xccdf_org.ssgproject.content_profile_{{ __profile }}_site
+          - --tailoring-file
+          - "{{ __out }}/tailoring.xml"
+          - --results-arf
+          - "{{ __out }}/{{ __target }}-arf.xml"
+          - --report
+          - "{{ __out }}/{{ __target }}.html"
+          - /usr/share/xml/scap/ssg/content/ssg-almalinux10-ds.xml
+      register: __scan
+      failed_when: __scan.rc not in [0, 2]
+      changed_when: false
+
+    - name: Fetch the host results
+      ansible.builtin.fetch:
+        src: "{{ __out }}/{{ __target }}{{ item }}"
+        dest: "{{ playbook_dir }}/../../artifacts/stig/{{ now(utc=true, fmt='%Y-%m-%d') }}/"
+        flat: true
+      loop: [-arf.xml, .html]
+
+    # Second scanner: the Ansible Lockdown audit (Goss), as the site runs it today.
+    # Goss lives under /var/lib (the STIG mounts /tmp, /var/tmp and /home noexec)
+    # and is trusted by fapolicyd only while the audit runs.
+    - name: Lockdown audit
+      when: lab_lockdown_audit | bool
+      vars:
+        __ld: /var/lib/lockdown-audit
+        __http: http://{{ lab_pxe_ip }}/bootc/tools
+      block:
+        - name: Audit directories
+          ansible.builtin.file:
+            path: "{{ item }}"
+            state: directory
+            mode: "0700"
+          loop: ["{{ __ld }}", "{{ __ld }}/RHEL10-STIG-Audit"]
+        - name: Goss
+          ansible.builtin.get_url:
+            url: "{{ __http }}/goss-linux-amd64"
+            dest: "{{ __ld }}/goss"
+            checksum: "{{ lab_goss_checksum }}"
+            mode: "0755"
+        - name: Audit content
+          ansible.builtin.unarchive:
+            src: "{{ __http }}/RHEL10-STIG-Audit-{{ lab_lockdown_audit_commit }}.tar.gz"
+            dest: "{{ __ld }}/RHEL10-STIG-Audit"
+            remote_src: true
+            extra_opts: [--strip-components=1]
+        - name: Is fapolicyd running?
+          ansible.builtin.service_facts:
+        - name: Trust Goss in fapolicyd for the audit
+          ansible.builtin.shell: fapolicyd-cli --file add {{ __ld }}/goss && fapolicyd-cli --update
+          when: ansible_facts.services['fapolicyd.service'].state | default('') == 'running'
+          changed_when: true
+        - name: Run the audit (run_audit.sh, JSON)
+          ansible.builtin.command:
+            argv: >-
+              {{ ['bash', __ld ~ '/RHEL10-STIG-Audit/run_audit.sh', '-o', __out ~ '/' ~ __target ~ '-goss.json']
+                 + (['-w'] if __profile == 'stig_gui' else []) }}
+          environment:
+            AUDIT_BIN: "{{ __ld }}/goss"
+            AUDIT_CONTENT_LOCATION: "{{ __ld }}"
+          register: __audit
+          changed_when: false
+          failed_when: false
+      always:
+        - name: Remove the temporary fapolicyd trust
+          ansible.builtin.shell: fapolicyd-cli --file delete {{ __ld }}/goss && fapolicyd-cli --update
+          when: ansible_facts.services['fapolicyd.service'].state | default('') == 'running'
+          changed_when: true
+
+    - name: Fetch the Lockdown audit results
+      ansible.builtin.fetch:
+        src: "{{ __out }}/{{ __target }}-goss.json"
+        dest: "{{ playbook_dir }}/../../artifacts/stig/{{ now(utc=true, fmt='%Y-%m-%d') }}/"
+        flat: true
+      when: lab_lockdown_audit | bool
+
+- name: Finding map and checklists from the results
+  hosts: localhost
+  gather_facts: false
+  tags: [images, hosts, report]
+  vars:
+    __dir: "{{ playbook_dir }}/../../artifacts/stig/{{ now(utc=true, fmt='%Y-%m-%d') }}"
+  tasks:
+    - name: Find this run's ARF files
+      ansible.builtin.find:
+        paths: "{{ __dir }}"
+        patterns: "*-arf.xml"
+      register: __arfs
+
+    - name: Store each target's rule results (compliance/stig/results/)
+      ansible.builtin.command:
+        argv:
+          - python3
+          - "{{ playbook_dir }}/../../tools/stig_report.py"
+          - results
+          - "{{ item.path }}"
+          - --target
+          - "{{ item.path | basename | regex_replace('-arf\\.xml$', '') }}"
+      loop: "{{ __arfs.files }}"
+      loop_control:
+        label: "{{ item.path | basename }}"
+      changed_when: true
+
+    - name: Find this run's Lockdown audit files
+      ansible.builtin.find:
+        paths: "{{ __dir }}"
+        patterns: "*-goss.json"
+      register: __goss
+
+    - name: Store each target's Lockdown audit results
+      ansible.builtin.command:
+        argv:
+          - python3
+          - "{{ playbook_dir }}/../../tools/stig_report.py"
+          - results-goss
+          - "{{ item.path }}"
+          - --target
+          - "{{ item.path | basename | regex_replace('-goss\\.json$', '') }}"
+      loop: "{{ __goss.files }}"
+      loop_control:
+        label: "{{ item.path | basename }}"
+      changed_when: true
+
+    - name: Regenerate the finding map and checklists
+      ansible.builtin.command:
+        argv: [python3, "{{ playbook_dir }}/../../tools/stig_report.py", generate]
+      register: __gen
+      changed_when: true
+
+    - name: Done
+      ansible.builtin.debug:
+        msg:
+          - "Full reports: {{ __dir }}"
+          - "Updated: docs/stig/finding-map.md, docs/stig/checklists/*.cklb, compliance/stig/results/*.json"
