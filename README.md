@@ -35,7 +35,7 @@ flowchart TD
 | [ansible/playbooks/](ansible/playbooks/) | `pxe_server`, `image_patch`, `image_promote`, `image_disk`, `kubevirt_golden_image`, `day2_{status,upgrade,switch,rollback}` |
 | [kubevirt/](kubevirt/) | The same KubeVirt objects as plain YAML, for GitOps |
 | [lab/](lab/) | A self-contained **Hyper-V lab** (AlmaLinux 10 standing in for RHEL 10) that runs the whole flow end to end, including the airgap |
-| [docs/](docs/) | Architecture, airgap content, bare metal, workstations, KubeVirt, Day-2, migrating from legacy PXE |
+| [docs/](docs/) | Architecture, airgap content, bare metal, workstations, KubeVirt, Day-2, migrating from legacy PXE, DISA STIG |
 | [tools/](tools/) | The tools container (pinned Python 3.14, Ansible, linters, Molecule, pykickstart) and the render check |
 
 ## Quick start
@@ -73,6 +73,7 @@ To try the whole thing on one Windows PC without touching your network, see
 5. [OpenShift Virtualization / KubeVirt](docs/kubevirt.md)
 6. [Day-2: patch, deploy, roll back](docs/day2.md)
 7. [Migrating from the legacy RPM PXE setup](docs/migrating-from-legacy-pxe.md)
+8. [DISA STIG: hardened images, finding map, evidence](docs/stig/README.md)
 
 ## License
 
