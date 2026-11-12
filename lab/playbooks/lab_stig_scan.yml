@@ -190,19 +190,28 @@
             path: "{{ item }}"
             state: directory
             mode: "0700"
-          loop: ["{{ __ld }}", "{{ __ld }}/RHEL10-STIG-Audit"]
+          loop: ["{{ __ld }}"]
         - name: Goss
           ansible.builtin.get_url:
             url: "{{ __http }}/goss-linux-amd64"
             dest: "{{ __ld }}/goss"
             checksum: "{{ lab_goss_checksum }}"
             mode: "0755"
+        # A minimal RPM install has no tar (unarchive needs it), and the audit
+        # shouldn't add packages to the host it scores, so unpack with the
+        # host's own python3, then drop the archive's top-level directory.
+        - name: Audit content archive
+          ansible.builtin.get_url:
+            url: "{{ __http }}/RHEL10-STIG-Audit-{{ lab_lockdown_audit_commit }}.tar.gz"
+            dest: "{{ __ld }}/RHEL10-STIG-Audit.tar.gz"
+            mode: "0600"
         - name: Audit content
-          ansible.builtin.unarchive:
-            src: "{{ __http }}/RHEL10-STIG-Audit-{{ lab_lockdown_audit_commit }}.tar.gz"
-            dest: "{{ __ld }}/RHEL10-STIG-Audit"
-            remote_src: true
-            extra_opts: [--strip-components=1]
+          ansible.builtin.shell: >-
+            rm -rf {{ __ld }}/RHEL10-STIG-Audit {{ __ld }}/unpack &&
+            python3 -m tarfile -e {{ __ld }}/RHEL10-STIG-Audit.tar.gz {{ __ld }}/unpack &&
+            mv {{ __ld }}/unpack/* {{ __ld }}/RHEL10-STIG-Audit &&
+            rmdir {{ __ld }}/unpack
+          changed_when: true
         - name: Is fapolicyd running?
           ansible.builtin.service_facts:
         - name: Trust Goss in fapolicyd for the audit

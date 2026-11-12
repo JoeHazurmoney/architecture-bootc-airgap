@@ -2,6 +2,11 @@
 # Site settings for the Ansible Lockdown RHEL10-STIG role in the lab.
 # Put the production overrides from the RHEL 8 role here (ported to RHEL 10
 # variable names) so the comparison reflects how the site really hardens.
+#
+# Not done in this lab (2026-11-12): the site's RHEL 8 overrides weren't
+# available, so rpm01 runs Lockdown's defaults plus the lab values below. That's
+# enough to prove the RHEL 10 / bootc method, but rpm01's scores describe
+# stock Lockdown, not the site's real configuration.
 
 # Time, DNS and log servers: the PXE VM is the only server on the lab network
 rhel10stig_time_synchronization_servers: ["{{ lab_pxe_ip }}"]
