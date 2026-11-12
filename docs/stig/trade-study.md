@@ -163,7 +163,16 @@ the top of [finding-map.md](finding-map.md).
 | bootc server image, before the STIG layer | nothing | 107 | 161 |
 | **bootc server (srv01)** | option A: image build + install templates | **357** | **5** |
 | **bootc workstation (ws01)** | option A, `stig_gui` | **374** | **5** |
-| RPM server (rpm01) | option D: RPM install + Ansible Lockdown `RHEL10-STIG` 1.2.0, `disruption_high: true`, lab site values | 275 | 104 |
+| RPM server (rpm01) | option D: RPM install + Ansible Lockdown `RHEL10-STIG` 1.2.0, `disruption_high: true`, Lockdown defaults + lab site values | 275 | 104 |
+
+The same hosts through the **Ansible Lockdown audit** (Goss, `RHEL10-STIG-Audit`,
+the site's current scanner; 974 tests rolled up to STIG IDs):
+
+| System | ✅ Pass | ❌ Open | Agrees with OpenSCAP on |
+| --- | ---: | ---: | --- |
+| bootc server (srv01) | 285 | 112 | 253 of 346 findings |
+| bootc workstation (ws01) | 279 | 118 | 246 of 344 |
+| RPM server (rpm01) | 370 | 27 | 274 of 364 |
 
 - **The 5 open on the bootc hosts are all explained in `controls.yaml`:** one
   AlmaLinux lab gap (a smart card package that only RHEL has), one proposed
@@ -172,9 +181,26 @@ the top of [finding-map.md](finding-map.md).
 - **The RPM host's 104 open** are about half audit rules: 52 of the open
   findings, from 74 failing audit-rule checks. Lockdown writes those rules in a
   form Red Hat's checks don't accept. The rest are accounts and password
-  settings (14 checks), sysctl (7), AIDE (5), SSSD (4) and smaller groups. Expect
-  the Lockdown audit to score this host higher. That comparison needs the Goss
-  audit run, which is waiting for approval.
+  settings (14 checks), sysctl (7), AIDE (5), SSSD (4) and smaller groups.
+- **Each scanner favors the tool it was written for.** The Lockdown audit
+  scores rpm01 best (27 open) and the bootc hosts worst (112 and 118). It's the
+  mirror image of OpenSCAP. On srv01, 57 of the 121 failed Goss tests are audit
+  rules. Goss greps Lockdown's own rule keys (`-k privileged-usermod`) in
+  Lockdown's own file (`/etc/audit/rules.d/99_auditd.rules`). Red Hat's content
+  loads the same rule under `key=privileged` in its own files, and `auditctl -l`
+  on srv01 shows it in effect. Likewise, Goss reads sysctl settings only from
+  `/etc/sysctl.d/`, so a value the OS ships in `/usr/lib/sysctl.d/` counts as
+  open even when it's live (`accept_source_route = 0` on srv01). The findings
+  both scanners call open (3 on srv01, 11 on rpm01) are the real gaps.
+- **For the site:** keep one scanner as the scanner of record. Run the other
+  only to look for blind spots, and read its "open" results as "check by hand",
+  not as failures. OpenSCAP is the natural one of record for image mode: it scans
+  the image before any host exists (`oscap-podman`), and it's Red Hat's content
+  for Red Hat's OS.
+- **rpm01 is stock Lockdown.** The site's RHEL 8 overrides weren't available to
+  the lab, so rpm01 runs Lockdown's defaults plus the lab site values in
+  `lab/lockdown/site-vars.yml`. Its scores describe the method, not the site's
+  real configuration.
 - **The last fixes reached the hosts without anyone touching them.** Fix in
   git → build → promote → `bootc upgrade` took srv01 from 10 open to 5.
 

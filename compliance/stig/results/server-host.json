@@ -1,8 +1,8 @@
 {
  "target": "bootc-lab-srv01",
  "description": "",
- "start": "2026-11-12T04:00:01+00:00",
- "end": "2026-11-12T04:00:56+00:00",
+ "start": "2026-11-12T13:35:06+00:00",
+ "end": "2026-11-12T13:35:59+00:00",
  "profile": "xccdf_org.ssgproject.content_profile_stig_site",
  "score": "97.359520",
  "counts": {
