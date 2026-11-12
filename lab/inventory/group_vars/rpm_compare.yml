@@ -1,0 +1,4 @@
+---
+# The STIG comparison host (traditional RPM install). Like the bootc clients,
+# sudo needs the lab admin password (STIG: no NOPASSWD).
+ansible_become_password: "{{ lab_admin_password }}"

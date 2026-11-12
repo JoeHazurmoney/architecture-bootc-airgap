@@ -8,12 +8,12 @@
 - name: Validate per-host entries
   ansible.builtin.assert:
     that:
-      - item.profile in bootc_pxe_images
+      - item.ks_url is defined or item.profile | default('') in bootc_pxe_images
       - item.mac | lower is match('^([0-9a-f]{2}:){5}[0-9a-f]{2}$')
       - item.name is match('^[a-zA-Z0-9][a-zA-Z0-9.-]*$')
     fail_msg: >-
       Host {{ item.name }}: profile must be one of {{ bootc_pxe_images.keys() | list }}
-      and mac must look like aa:bb:cc:dd:ee:ff.
+      (or set ks_url), and mac must look like aa:bb:cc:dd:ee:ff.
     quiet: true
   loop: "{{ bootc_pxe_hosts }}"
   loop_control:
@@ -37,6 +37,35 @@
   loop: "{{ bootc_pxe_images | dict2items }}"
   loop_control:
     label: "{{ item.key }}"
+
+# STIG forbids sudo without re-authentication, so a STIG install can't use the
+# key-only admin path (NOPASSWD). RHEL-10-600230 and friends.
+- name: STIG images need a password-protected admin account
+  ansible.builtin.assert:
+    that: bootc_pxe_admin_password_hash | length > 0
+    fail_msg: >-
+      bootc_pxe_images.{{ item.key }} has stig: true, which needs
+      bootc_pxe_admin_password_hash (STIG forbids NOPASSWD sudo).
+    quiet: true
+  loop: "{{ bootc_pxe_images | dict2items | selectattr('value.stig', 'defined') | selectattr('value.stig') | list }}"
+  loop_control:
+    label: "{{ item.key }}"
+
+# Anaconda's newer `bootc` command refuses user-specified mount points (/tmp,
+# /var/log, /var/log/audit, /var/tmp, /var/home) as of RHEL/AlmaLinux 10.2, so
+# a STIG disk layout needs ostreecontainer.
+- name: STIG installs need the ostreecontainer Kickstart command
+  ansible.builtin.assert:
+    that: >-
+      not (bootc_pxe_images[item.profile].stig | default(false))
+      or (item.ks_directive | default(bootc_pxe_ks_directive)) == 'ostreecontainer'
+    fail_msg: >-
+      Host {{ item.name }} installs a STIG image with ks_directive bootc, which
+      can't create the separate STIG file systems. Use ostreecontainer.
+    quiet: true
+  loop: "{{ bootc_pxe_hosts | selectattr('profile', 'defined') | list }}"
+  loop_control:
+    label: "{{ item.name }}"
 
 - name: Full DHCP mode is only for an isolated network with an explicit interface
   ansible.builtin.assert:

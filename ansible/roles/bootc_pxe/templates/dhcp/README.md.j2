@@ -29,6 +29,6 @@ Known hosts (zero-touch installs by MAC):
 | Host | MAC | Profile | State |
 | --- | --- | --- | --- |
 {% for h in bootc_pxe_hosts %}
-| {{ h.name }} | {{ h.mac | lower }} | {{ h.profile }} | {{ h.state | default('install') }} |
+| {{ h.name }} | {{ h.mac | lower }} | {{ h.profile | default('own Kickstart') }} | {{ h.state | default('install') }} |
 {% endfor %}
 {% endif %}

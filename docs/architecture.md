@@ -46,6 +46,7 @@ From that one image:
 | 8 | Per-MAC GRUB files with `state: install` = **install only onto a blank disk** | Zero-touch installs that are safe with network-first boot order; reinstalling is a deliberate `state: reinstall` | Toggling DHCP filenames; manual boot-menu choice |
 | 9 | Image-side **health check with automatic rollback** (`bootc-health-check.service`) | A bad image can't strand a remote host; checks are drop-in scripts | greenboot (check whether RHEL 10 packages it for bootc; can replace ours if so) |
 | 10 | All tooling runs in a **pinned Python 3.14 container** | Same Ansible/linters everywhere; host Python stays clean | Host Ansible; per-user venvs |
+| 11 | **DISA STIG applied in the image build** with `oscap-im` and Red Hat's SCAP content, as the last image layer (`server-stig`, `workstation-stig`). Disk layout and FIPS-at-install come from Kickstart. Decisions and exceptions live in `compliance/stig/controls.yaml`; the finding map and STIG Viewer checklists are generated from it ([docs/stig/](stig/)) | Red Hat's supported path for image mode; every host gets identical, pre-scanned bits; every DISA finding is traceable in git | Ansible Lockdown or Lightspeed/Satellite remediation on running hosts; hand-written config only ([trade study](stig/trade-study.md)) |
 
 ## Components
 
@@ -66,5 +67,7 @@ From that one image:
   (`bootc_build_registry_ca`) and fetched by the installer in `%pre`.
 - SSH: keys only, no root login (`40-bootc-hardening.conf`). The admin account
   is key-only with NOPASSWD sudo unless you set `bootc_pxe_admin_password_hash`.
+  STIG images (`stig: true`) require the password hash.
+- **DISA STIG**: the `-stig` images, see [docs/stig/](stig/README.md).
 - Image signing (cosign / sigstore) plus a `policy.json` on hosts is the next
   step. Set `bootc_pxe_signature_verification: true` once signing is in place.

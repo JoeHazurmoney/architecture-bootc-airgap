@@ -14,7 +14,7 @@
 #>
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory)][ValidateSet('server', 'workstation')][string]$Profile,
+    [Parameter(Mandatory)][ValidateSet('server', 'workstation', 'rpm')][string]$Profile,
     [string]$Name,
     [string]$Mac,
     [int]$MemoryGB,
@@ -29,6 +29,8 @@ $ErrorActionPreference = 'Stop'
 $defaults = @{
     server      = @{ Name = 'bootc-lab-srv01'; Mac = '020077000065'; MemoryGB = 4 }
     workstation = @{ Name = 'bootc-lab-ws01';  Mac = '020077000066'; MemoryGB = 6 }
+    # STIG comparison host, installed the traditional RPM way (lab_rpm_host.yml)
+    rpm         = @{ Name = 'bootc-lab-rpm01'; Mac = '020077000067'; MemoryGB = 4 }
 }
 if (-not $Name)     { $Name = $defaults[$Profile].Name }
 if (-not $Mac)      { $Mac = $defaults[$Profile].Mac }

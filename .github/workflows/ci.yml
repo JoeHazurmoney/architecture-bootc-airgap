@@ -25,6 +25,8 @@ jobs:
         run: make lint ENGINE=docker
       - name: Render Kickstarts, GRUB and DHCP for every inventory, validate with pykickstart
         run: make render ENGINE=docker
+      - name: STIG finding map, tailoring and checklists are current; every DISA finding has a disposition
+        run: make stig-check ENGINE=docker
 
   molecule:
     name: Molecule (bootc_pxe)
@@ -47,3 +49,38 @@ jobs:
         run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
       - name: Build server + workstation (each ends with bootc container lint)
         run: make images ENGINE=docker VERSION=ci-${{ github.run_number }}
+
+  stig-image:
+    name: Build and scan server-stig (AlmaLinux 10 stand-in base)
+    runs-on: ubuntu-24.04
+    needs: lint-render
+    steps:
+      - uses: actions/checkout@v5
+      # podman, not docker: oscap-im only runs in a podman/buildah build
+      # ("supposed to be used only in the bootable container build environment")
+      - name: Build server, then the STIG layer on it (oscap-im, then bootc container lint)
+        run: |
+          podman --version
+          make stig-images ENGINE=podman VERSION=ci-${{ github.run_number }}
+      # Scanned from inside the image: a quick regression gate for the build.
+      # Container context marks some rules notapplicable; the lab scans real hosts.
+      - name: Scan the hardened image with its own scanner and tailoring
+        run: |
+          mkdir -p artifacts/stig
+          podman run --rm -v "$PWD/artifacts/stig:/out" \
+            localhost/bootc/server-stig:ci-${{ github.run_number }} sh -c '
+              . /usr/share/bootc-stig/profile.env
+              oscap xccdf eval --profile "$TAILORED_PROFILE" \
+                --tailoring-file /usr/share/bootc-stig/tailoring.xml \
+                --results-arf /out/server-image-ci-arf.xml --report /out/server-image-ci.html \
+                "$DATASTREAM" > /out/server-image-ci.txt
+              rc=$?; [ $rc -eq 0 ] || [ $rc -eq 2 ]'
+      - name: Summary
+        run: |
+          { echo '### STIG scan of server-stig (container context)'; echo '```';
+            grep -E '^Result' artifacts/stig/server-image-ci.txt | sort | uniq -c; echo '```'; } \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: stig-server-image-scan
+          path: artifacts/stig/

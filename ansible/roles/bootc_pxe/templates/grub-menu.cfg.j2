@@ -12,7 +12,7 @@ menuentry 'Boot from local disk' --id local {
 {% for profile, img in bootc_pxe_images.items() %}
 menuentry 'Install bootc {{ profile }} ({{ img.repository }}:{{ img.tag | default(img.digest | default("")) }}) - ERASES DISK' --id install-{{ profile }} {
   echo 'Loading {{ bootc_pxe_installer_name }} installer kernel...'
-  linux {{ k.kpath }}/vmlinuz {{ k.kargs }} inst.ks={{ bootc_pxe_http_url }}/ks/{{ profile }}.ks
+  linux {{ k.kpath }}/vmlinuz {{ k.kargs }}{{ k.fips(profile) }} inst.ks={{ bootc_pxe_http_url }}/ks/{{ profile }}.ks
   echo 'Loading initrd (can take a minute)...'
   initrd {{ k.kpath }}/initrd.img
 }

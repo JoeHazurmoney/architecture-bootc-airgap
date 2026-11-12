@@ -9,7 +9,7 @@ SOCKET      ?= /var/run/docker.sock
 RUN = $(ENGINE) run --rm -v $(CURDIR):/work:z -w /work \
       -e ANSIBLE_CONFIG=/work/ansible/ansible.cfg $(TOOLS_IMAGE)
 
-.PHONY: help tools lint render test images check clean
+.PHONY: help tools lint render test images server-image stig stig-check stig-images check clean
 
 help:
 	@echo "make tools   - build the tools container"
@@ -17,7 +17,10 @@ help:
 	@echo "make render  - render Kickstarts/GRUB/DHCP for every inventory and validate them"
 	@echo "make test    - molecule converge/idempotence/verify for bootc_pxe (needs $(SOCKET))"
 	@echo "make images  - build server + workstation images on BASE_IMAGE (runs bootc container lint)"
-	@echo "make check   - lint + render + test"
+	@echo "make stig    - regenerate the STIG tailoring, finding map and checklists from compliance/stig/"
+	@echo "make stig-check - fail if the STIG outputs are stale or controls.yaml is invalid"
+	@echo "make stig-images - build server, then server-stig on it"
+	@echo "make check   - lint + render + stig-check + test"
 
 tools:
 	$(ENGINE) build -f tools/Containerfile -t $(TOOLS_IMAGE) .
@@ -33,13 +36,25 @@ test: tools
 	  -w /work/ansible/roles/bootc_pxe -e ANSIBLE_CONFIG=/work/ansible/ansible.cfg \
 	  $(TOOLS_IMAGE) molecule test
 
-images:
-	$(ENGINE) build -f images/base/Containerfile --build-arg BASE_IMAGE=$(BASE_IMAGE) \
-	  --build-arg IMAGE_VERSION=$(VERSION) -t localhost/bootc/server:$(VERSION) images/
+images: server-image
 	$(ENGINE) build -f images/workstation/Containerfile --build-arg BASE_IMAGE=localhost/bootc/server:$(VERSION) \
 	  --build-arg IMAGE_VERSION=$(VERSION) -t localhost/bootc/workstation:$(VERSION) images/
 
-check: lint render test
+stig: tools
+	$(RUN) python3 tools/stig_report.py generate
+
+stig-check: tools
+	$(RUN) python3 tools/stig_report.py check
+
+server-image:
+	$(ENGINE) build -f images/base/Containerfile --build-arg BASE_IMAGE=$(BASE_IMAGE) \
+	  --build-arg IMAGE_VERSION=$(VERSION) -t localhost/bootc/server:$(VERSION) images/
+
+stig-images: server-image
+	$(ENGINE) build -f images/stig/Containerfile --build-arg BASE_IMAGE=localhost/bootc/server:$(VERSION) \
+	  --build-arg STIG_PROFILE=stig --build-arg IMAGE_VERSION=$(VERSION) -t localhost/bootc/server-stig:$(VERSION) images/
+
+check: lint render stig-check test
 
 clean:
 	rm -rf artifacts/

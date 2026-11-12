@@ -30,6 +30,6 @@
       {{ ['ksvalidator', '-v', bootc_pxe_ksvalidator_version, bootc_pxe_http_root ~ '/ks/' ~ item ~ '.ks'] }}
   loop: >-
     {{ bootc_pxe_images.keys() | list
-       + (bootc_pxe_hosts | map(attribute='name') | map('regex_replace', '^', 'hosts/') | list) }}
+       + (bootc_pxe_hosts | rejectattr('ks_url', 'defined') | map(attribute='name') | map('regex_replace', '^', 'hosts/') | list) }}
   changed_when: false
   when: bootc_pxe_validate_kickstarts | bool

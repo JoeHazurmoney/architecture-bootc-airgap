@@ -16,8 +16,9 @@ Kickstart commands, no subscription needed.
  │                          │                      │  control node: tools container (podman)
  │                          └──────────┬───────────┘
  └─ "bootc-lab" (PRIVATE switch: no host NIC, no uplink, no router)
-          ├─ bootc-lab-srv01  02:00:77:00:00:65  10.77.0.101  server       (Kickstart ostreecontainer)
-          ├─ bootc-lab-ws01   02:00:77:00:00:66  10.77.0.102  workstation  (Kickstart bootc)
+          ├─ bootc-lab-srv01  02:00:77:00:00:65  10.77.0.101  server-stig       (Kickstart ostreecontainer)
+          ├─ bootc-lab-ws01   02:00:77:00:00:66  10.77.0.102  workstation-stig  (Kickstart ostreecontainer)
+          ├─ bootc-lab-rpm01  02:00:77:00:00:67  10.77.0.103  STIG comparison: RPM install + Ansible Lockdown
           └─ bootc-lab-vm01   02:00:77:00:00:6e  10.77.0.110  VM path: bib disk + cloud-init
 ```
 
@@ -25,8 +26,9 @@ The only DHCP server on `bootc-lab` is the PXE VM. Because it's a **Private**
 switch, that DHCP can't reach your LAN or the host, and lab clients have no
 route anywhere.
 
-Budget: about 20 GB RAM with everything running (PXE 8, srv 4, ws 6, vm 4) and
-about 250 GB of dynamic disk at most.
+Budget: about 24 GB RAM with everything running (PXE 8, srv 4, ws 6, rpm 4,
+vm 4) and about 300 GB of dynamic disk at most (the PXE VM also holds the 10 GB
+AlmaLinux DVD for the RPM comparison host).
 
 ## 1. Prepare media (Windows)
 
@@ -121,6 +123,31 @@ powershell -File lab/hyperv/New-BootcLabVmFromImage.ps1
 
 This is the KubeVirt flow with Hyper-V in OpenShift's place: the same disk,
 and cloud-init NoCloud for Day-1.
+
+## 7. STIG example (docs/stig/)
+
+srv01 and ws01 install the `-stig` images (FIPS, STIG disk layout). rpm01 is
+the comparison host, done the way RHEL 8 hosts are hardened today. The lab
+clients use the ECDSA key `lab/.lab-secrets/id_ecdsa`: FIPS-mode OpenSSH refuses
+Ed25519.
+
+On the PXE VM:
+
+```bash
+# RPM comparison host: serve the DVD repo + package-mode Kickstart, then
+# (after New-BootcLabClient.ps1 -Profile rpm has installed it) harden it
+lab/run-tools.sh ansible-playbook -i lab/inventory lab/playbooks/lab_rpm_host.yml
+lab/run-tools.sh ansible-playbook -i lab/inventory lab/playbooks/lab_rpm_lockdown.yml
+
+# Scan the images and the hosts, regenerate docs/stig/finding-map.md + checklists
+lab/run-tools.sh ansible-playbook -i lab/inventory lab/playbooks/lab_stig_scan.yml
+#   ... -e lab_lockdown_audit=true   adds the Ansible Lockdown (Goss) audit on hosts
+
+# Trade-study spike: the Lockdown role inside the image build (doesn't finish; see trade-study.md)
+lab/run-tools.sh ansible-playbook -i lab/inventory lab/playbooks/lab_stig_lockdown_image.yml
+```
+
+Then copy `compliance/stig/results/` and `docs/stig/` back to Windows and commit them.
 
 ## Teardown
 

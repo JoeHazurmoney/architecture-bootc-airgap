@@ -52,6 +52,14 @@ def ensure_ssh_key() -> str:
             ["ssh-keygen", "-t", "ed25519", "-N", "", "-C", "bootc-lab", "-f", str(key)],
             check=True,
         )
+    # STIG hosts run in FIPS mode, where OpenSSH refuses Ed25519 keys: the lab
+    # clients get a FIPS-approved ECDSA P-384 key as well (lab_admin_pubkey_fips).
+    fips_key = SECRETS / "id_ecdsa"
+    if not fips_key.exists():
+        subprocess.run(
+            ["ssh-keygen", "-t", "ecdsa", "-b", "384", "-N", "", "-C", "bootc-lab-fips", "-f", str(fips_key)],
+            check=True,
+        )
     return (SECRETS / "id_ed25519.pub").read_text().strip()
 
 

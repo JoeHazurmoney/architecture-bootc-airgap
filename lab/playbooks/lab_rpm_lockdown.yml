@@ -1,0 +1,68 @@
+---
+# Harden the RPM comparison host the way the RHEL 8 estate is hardened today:
+# the Ansible Lockdown STIG role, run against the installed host.
+#   lab/run-tools.sh ansible-playbook -i lab/inventory lab/playbooks/lab_rpm_lockdown.yml
+#
+# Lockdown defaults, plus the site values every site must set (time, DNS,
+# syslog, boot loader password), pointed at the lab. The site's own Lockdown
+# overrides belong in lab/lockdown/site-vars.yml so the lab mirrors production.
+- name: Fetch the pinned Lockdown role
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Install RHEL10-STIG into lab/.roles (git-ignored)
+      ansible.builtin.command:
+        argv: [ansible-galaxy, role, install, -r, "{{ playbook_dir }}/../lockdown/requirements.yml",
+               -p, "{{ playbook_dir }}/../.roles"]
+        creates: "{{ playbook_dir }}/../.roles/RHEL10-STIG/tasks/main.yml"
+
+    # The role wants a precomputed GRUB hash (grub2-mkpasswd-pbkdf2 format)
+    - name: GRUB boot loader password hash (lab secret, made once)
+      ansible.builtin.command:
+        argv:
+          - python3
+          - -c
+          - >-
+            import os, sys; from passlib.hash import grub_pbkdf2_sha512 as g;
+            fd = os.open(sys.argv[2], os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600);
+            os.write(fd, (g.using(rounds=10000).hash(sys.argv[1]) + chr(10)).encode())
+          - "{{ lab_admin_password }}"
+          - "{{ lab_secrets_dir }}/grub-pbkdf2"
+        creates: "{{ lab_secrets_dir }}/grub-pbkdf2"
+      no_log: true
+
+- name: Apply the Ansible Lockdown RHEL 10 STIG role
+  hosts: rpm_compare
+  become: true
+  vars_files:
+    - ../lockdown/site-vars.yml
+  tasks:
+    # An airgapped RPM host gets its packages from Satellite or an internal
+    # mirror; in the lab that's the DVD repo the PXE VM serves.
+    - name: Find the distro's own (internet) repo files
+      ansible.builtin.find:
+        paths: /etc/yum.repos.d
+        patterns: "almalinux*.repo"
+      register: __distro_repos
+
+    - name: Disable them (no internet here)
+      ansible.builtin.replace:
+        path: "{{ item.path }}"
+        regexp: '^enabled\s*=\s*1'
+        replace: enabled=0
+      loop: "{{ __distro_repos.files }}"
+      loop_control:
+        label: "{{ item.path | basename }}"
+
+    - name: Use the lab's DVD repo
+      ansible.builtin.yum_repository:
+        name: "lab-dvd-{{ item | lower }}"
+        description: AlmaLinux 10.2 DVD {{ item }} (bootc lab PXE VM)
+        baseurl: "{{ lab_dvd_repo_url }}/{{ item }}"
+        gpgcheck: true
+        gpgkey: file:///etc/pki/rpm-gpg/RPM-GPG-KEY-AlmaLinux-10
+      loop: [BaseOS, AppStream]
+
+    - name: Run RHEL10-STIG  # noqa: role-name[path]
+      ansible.builtin.include_role:
+        name: "{{ playbook_dir }}/../.roles/RHEL10-STIG"

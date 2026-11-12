@@ -1,0 +1,47 @@
+# Managed by lab/playbooks/lab_rpm_host.yml. Do not edit on the server.
+# STIG comparison host, installed THE TRADITIONAL WAY, as the RHEL 8 estate is
+# today: an RPM Kickstart from the DVD repo (FIPS at install, STIG disk layout),
+# then hardened on the host by the Ansible Lockdown STIG role
+# (lab/playbooks/lab_rpm_lockdown.yml). Afterwards it is patched with dnf and
+# re-hardened host by host; the bootc hosts are rebuilt from git instead.
+text
+url --url={{ lab_dvd_repo_url }}/BaseOS
+repo --name=AppStream --baseurl={{ lab_dvd_repo_url }}/AppStream
+lang en_US.UTF-8
+keyboard us
+timezone UTC --utc
+timesource --ntp-server={{ lab_pxe_ip }}
+network --bootproto=dhcp --device=link --activate --hostname=bootc-lab-rpm01
+
+# Same STIG disk layout as the bootc hosts (bootc_pxe_partitioning_stig), except
+# that a package-mode host has a real /home instead of /var/home.
+ignoredisk --only-use=sda
+zerombr
+clearpart --all --initlabel --drives=sda
+part /boot/efi --fstype=efi --size=600 --fsoptions="umask=0077,shortname=winnt,nosuid"
+part /boot --fstype=xfs --size=1024 --fsoptions="nodev,nosuid"
+part pv.01 --size=1 --grow
+volgroup vg_os pv.01
+logvol / --vgname=vg_os --name=root --fstype=xfs --size=20480
+logvol /var --vgname=vg_os --name=var --fstype=xfs --size=8192 --fsoptions="nodev"
+logvol /var/log --vgname=vg_os --name=varlog --fstype=xfs --size=4096 --fsoptions="nodev,nosuid,noexec"
+logvol /var/log/audit --vgname=vg_os --name=audit --fstype=xfs --size=4096 --fsoptions="nodev,nosuid,noexec"
+logvol /var/tmp --vgname=vg_os --name=vartmp --fstype=xfs --size=2048 --fsoptions="nodev,nosuid,noexec"
+logvol /tmp --vgname=vg_os --name=tmp --fstype=xfs --size=2048 --fsoptions="nodev,nosuid,noexec"
+logvol /home --vgname=vg_os --name=home --fstype=xfs --size=4096 --fsoptions="nodev,nosuid,noexec"
+
+rootpw --lock
+user --name={{ bootc_pxe_admin_user }} --groups=wheel --iscrypted --password={{ bootc_pxe_admin_password_hash }}
+{% for key in bootc_pxe_admin_ssh_keys %}
+sshkey --username={{ bootc_pxe_admin_user }} "{{ key | trim }}"
+{% endfor %}
+reboot
+
+%packages
+@core
+# Lockdown's prerequisites, and OpenSCAP so the host can be scanned like the others
+python3-dnf
+python3-libselinux
+openscap-scanner
+scap-security-guide
+%end

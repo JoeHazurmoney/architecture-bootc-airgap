@@ -1,0 +1,105 @@
+# syntax=docker/dockerfile:1
+# ---------------------------------------------------------------------------
+# STIG hardening layer. It goes LAST, on top of any finished image:
+#   server      -> server-stig       (STIG_PROFILE=stig)
+#   workstation -> workstation-stig  (STIG_PROFILE=stig_gui)
+# Packages added after hardening (GNOME, agents) would undo it, which is why
+# workstation-stig builds FROM workstation, not FROM server-stig.
+#
+#   podman build -f images/stig/Containerfile \
+#     --build-arg BASE_IMAGE=<registry>/bootc/server:<ver> --build-arg STIG_PROFILE=stig \
+#     -t <registry>/bootc/server-stig:<ver> images/
+#
+# How each DISA finding is met, and why, is in compliance/stig/controls.yaml
+# and docs/stig/. This file only does three things:
+#   1. OpenSCAP's image-mode tool (oscap-im) applies the DISA STIG profile,
+#      as tailored in stig/tailoring.xml (generated from controls.yaml).
+#   2. stig/rootfs/ adds what oscap-im can't do at build time (FIPS kernel
+#      argument, USBGuard policy), and keeps bootc working with a noexec /tmp
+#      (TMPDIR drop-in for the update service). Each file names the STIG IDs.
+#   3. Build-only packages and caches are removed; the scanner stays, so hosts
+#      can be scanned (lab_stig_scan.yml, Red Hat Lightspeed, Satellite).
+# ---------------------------------------------------------------------------
+ARG BASE_IMAGE=localhost/bootc/server:dev
+FROM ${BASE_IMAGE}
+
+ARG IMAGE_VERSION=dev
+ARG GIT_SHA=unknown
+# stig (servers) or stig_gui (workstations). The tailored profile is <this>_site.
+ARG STIG_PROFILE=stig
+
+COPY stig/tailoring.xml /usr/share/bootc-stig/tailoring.xml
+COPY stig/rootfs/ /
+
+# oscap-im installs and removes packages itself (package_*_installed rules)
+# with plain `dnf`, so while it runs dnf.conf points at the same repos as the
+# rest of the build (images/repos/: the internal mirror in an airgap).
+RUN --mount=type=bind,source=repos,target=/run/extra-repos \
+    set -eux; \
+    if ls /run/extra-repos/*.repo >/dev/null 2>&1; then \
+        sed -i '/^\[main\]/a reposdir=/run/extra-repos' /etc/dnf/dnf.conf; \
+    fi; \
+    dnf -y install openscap-utils scap-security-guide; \
+    . /etc/os-release; \
+    ds="/usr/share/xml/scap/ssg/content/ssg-${ID}${VERSION_ID%%.*}-ds.xml"; \
+    profile="xccdf_org.ssgproject.content_profile_${STIG_PROFILE}_site"; \
+    rc=0; \
+    oscap-im --profile "${profile}" --tailoring-file /usr/share/bootc-stig/tailoring.xml \
+        "${ds}" > /run/oscap-im.log 2>&1 || rc=$?; \
+    # 0 = all pass, 2 = some rules still fail (judged by the scans, not here)
+    if [ "${rc}" -ne 0 ] && [ "${rc}" -ne 2 ]; then tail -50 /run/oscap-im.log; exit "${rc}"; fi; \
+    # The log lists every rule twice (evaluation, then remediation): keep the last result
+    grep -E '^xccdf_org\.ssgproject\.content_rule_' /run/oscap-im.log \
+        | sed 's/^xccdf_org\.ssgproject\.content_rule_//' \
+        | awk -F: '{r[$1]=$2} END {for (k in r) print k ":" r[k]}' | sort \
+        > /usr/share/bootc-stig/build-results.txt; \
+    # Second pass. oscap-im's build mode marks the audit rules, auditd.conf and a
+    # few logging rules "notapplicable", yet hosts are scanned against them, and
+    # their fixes are plain files under /etc. Apply exactly those with a normal
+    # remediation run (docs/stig/how-it-works.md, "What the lab found").
+    second=$(grep -E '^(audit_|auditd_|configure_usbguard_auditbackend:|postfix_prevent_unrestricted_relay:|rsyslog_remote_access_monitoring:)' \
+                 /usr/share/bootc-stig/build-results.txt | grep ':notapplicable$' | cut -d: -f1); \
+    if [ -n "${second}" ]; then \
+        rc=0; \
+        oscap xccdf eval --remediate --profile "${profile}" \
+            --tailoring-file /usr/share/bootc-stig/tailoring.xml \
+            $(printf -- '--rule xccdf_org.ssgproject.content_rule_%s ' ${second}) \
+            "${ds}" > /run/oscap-pass2.log 2>&1 || rc=$?; \
+        if [ "${rc}" -ne 0 ] && [ "${rc}" -ne 2 ]; then tail -50 /run/oscap-pass2.log; exit "${rc}"; fi; \
+        awk '/^Rule/ {r=$2} /^Result/ {print r ":" $2}' /run/oscap-pass2.log \
+            | sed 's/^xccdf_org\.ssgproject\.content_rule_//' > /run/pass2.txt; \
+        cat /usr/share/bootc-stig/build-results.txt /run/pass2.txt \
+            | awk -F: '{r[$1]=$2} END {for (k in r) print k ":" r[k]}' | sort > /run/merged.txt; \
+        cp /run/merged.txt /usr/share/bootc-stig/build-results.txt; \
+        printf 'second pass: %s rules\n' "$(wc -l < /run/pass2.txt)"; \
+    fi; \
+    # openscap-utils (oscap-im) drags in rpm-build and friends; keep only the scanner + content
+    dnf -y remove openscap-utils rpmdevtools rpm-build; \
+    dnf -y install openscap-scanner scap-security-guide; \
+    dnf clean all; \
+    # Take back only our reposdir line; OpenSCAP's dnf.conf settings stay (RHEL-10-001040)
+    sed -i '\#^reposdir=/run/extra-repos$#d' /etc/dnf/dnf.conf; \
+    rpm -q --qf '%{VERSION}\n' scap-security-guide > /usr/share/bootc-stig/ssg-version; \
+    printf 'STIG_PROFILE=%s\nTAILORED_PROFILE=%s\nDATASTREAM=%s\n' \
+        "${STIG_PROFILE}" "${profile}" "${ds}" > /usr/share/bootc-stig/profile.env; \
+    rm -rf /var/cache/dnf /var/lib/dnf /var/log/dnf* /var/log/hawkey.log \
+           /var/lib/authselect/backups /var/cache/ldconfig /run/cloud-init /var/lib/cloud
+
+# Modes: build contexts from Windows/NTFS mark everything executable
+RUN set -eux; \
+    chmod 0644 /usr/lib/bootc/kargs.d/01-fips.toml \
+               /usr/lib/systemd/system/bootc-fetch-apply-updates.service.d/50-stig-tmpdir.conf \
+               /usr/lib/systemd/system/bootc-aide-init.service \
+               /usr/lib/tmpfiles.d/50-stig-faillock.conf; \
+    # RHEL-10-500025: audit rule files 0600 (the audit package ships audit.rules 0640)
+    chmod 0600 /etc/audit/rules.d/*.rules; \
+    systemctl enable bootc-aide-init.service; \
+    chmod 0600 /etc/usbguard/rules.conf; \
+    printf 'STIG=%s\n' "${STIG_PROFILE}" >> /usr/lib/bootc-image-release
+
+LABEL org.opencontainers.image.version="${IMAGE_VERSION}" \
+      org.opencontainers.image.revision="${GIT_SHA}" \
+      io.github.bootc-airgap.stig.profile="${STIG_PROFILE}" \
+      io.github.bootc-airgap.stig.benchmark="DISA RHEL 10 STIG V1R2"
+
+RUN bootc container lint

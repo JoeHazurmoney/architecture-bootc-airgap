@@ -11,3 +11,5 @@ images/repos/*.repo
 .molecule/
 __pycache__/
 *.retry
+lab/.roles/
+images/stig-lockdown/vendor/

@@ -1,0 +1,71 @@
+# syntax=docker/dockerfile:1
+# ---------------------------------------------------------------------------
+# TRADE-STUDY OPTION (not the recommended path): the Ansible Lockdown
+# RHEL10-STIG role, the way the RHEL 8 estate is hardened today, run INSIDE
+# the image build instead of against each host. See docs/stig/trade-study.md.
+#
+# The role and its collections come from stig-lockdown/vendor/ (git-ignored),
+# staged by lab/playbooks/lab_stig_lockdown_image.yml from the pinned role in
+# lab/lockdown/requirements.yml. ansible-core comes from the distro repos and
+# is removed again, so the image carries no Ansible.
+#
+# What it took to make the role run in a build (the trade-study evidence):
+#   - temporary SSH host keys, so the role's `sshd -t` validation works; they
+#     are deleted again, because host keys must never ship in an image
+#   - stig-lockdown/build-vars.yml: controls that fail in a container build,
+#     switched off on top of the role's own vars/is_container.yml list
+#   - FIPS: the role can't do it in a container, so the crypto policy and the
+#     fips=1 kernel argument are set here, as in the oscap-im image
+# ---------------------------------------------------------------------------
+ARG BASE_IMAGE=localhost/bootc/server:dev
+
+# Root-owned copy of the build inputs. The role "fixes" files without a valid
+# owner or group anywhere on the filesystem, bind mounts included, and the
+# build context is owned by the build user, whose IDs don't exist in the image.
+FROM scratch AS inputs
+COPY --chown=0:0 repos/ /repos/
+COPY --chown=0:0 stig-lockdown/vendor/ /lockdown/
+COPY --chown=0:0 stig-lockdown/build-vars.yml /lockdown-build-vars.yml
+
+FROM ${BASE_IMAGE}
+
+ARG IMAGE_VERSION=dev
+ARG GIT_SHA=unknown
+
+RUN --mount=type=bind,from=inputs,source=/repos,target=/run/extra-repos \
+    --mount=type=bind,from=inputs,source=/lockdown,target=/run/lockdown \
+    --mount=type=bind,from=inputs,source=/lockdown-build-vars.yml,target=/run/lockdown-build-vars.yml \
+    set -eux; \
+    opts=""; \
+    if ls /run/extra-repos/*.repo >/dev/null 2>&1; then opts="--setopt=reposdir=/run/extra-repos"; fi; \
+    dnf -y ${opts} install ansible-core; \
+    rpm -q --qf '%{NAME} %{VERSION}\n' ansible-core python3; \
+    # The role installs packages itself (plain dnf): point it at the same repos
+    cp -a /etc/dnf/dnf.conf /run/dnf.conf.orig; \
+    if [ -n "${opts}" ]; then sed -i '/^\[main\]/a reposdir=/run/extra-repos' /etc/dnf/dnf.conf; fi; \
+    mkdir -p /usr/share/bootc-stig; \
+    ssh-keygen -A; \
+    rc=0; \
+    ANSIBLE_COLLECTIONS_PATH=/run/lockdown/.collections \
+    ANSIBLE_LOCAL_TEMP=/run/ansible-tmp ANSIBLE_REMOTE_TEMP=/run/ansible-tmp \
+    ANSIBLE_FORCE_COLOR=0 ANSIBLE_NOCOLOR=1 \
+    ansible-playbook -i localhost, -c local /run/lockdown/site.yml \
+        -e @/run/lockdown/site-vars.yml -e @/run/lockdown-build-vars.yml \
+        > /usr/share/bootc-stig/lockdown-build.log 2>&1 || rc=$?; \
+    if [ "${rc}" -ne 0 ]; then grep -E '^(TASK|RUNNING HANDLER|fatal|failed)' /usr/share/bootc-stig/lockdown-build.log | grep -E -B1 '^(fatal|failed)'; exit "${rc}"; fi; \
+    grep -A1 'PLAY RECAP' /usr/share/bootc-stig/lockdown-build.log; \
+    cp -a /run/dnf.conf.orig /etc/dnf/dnf.conf; \
+    rm -f /etc/ssh/ssh_host_*; \
+    update-crypto-policies --no-reload --set FIPS; \
+    printf 'kargs = ["fips=1"]\n' > /usr/lib/bootc/kargs.d/01-fips.toml; \
+    dnf -y remove ansible-core; \
+    dnf clean all; \
+    rm -rf /var/cache/dnf /var/lib/dnf /var/log/dnf* /var/log/hawkey.log /root/.ansible /run/ansible-tmp \
+           /var/lib/authselect/backups /var/cache/ldconfig; \
+    printf 'STIG=lockdown\n' >> /usr/lib/bootc-image-release
+
+LABEL org.opencontainers.image.version="${IMAGE_VERSION}" \
+      org.opencontainers.image.revision="${GIT_SHA}" \
+      io.github.bootc-airgap.stig.profile="ansible-lockdown RHEL10-STIG (trade-study option)"
+
+RUN bootc container lint

@@ -13,6 +13,9 @@ lab_registry_auth: "{{ {'auths': {lab_registry: {'auth': (lab_registry_user ~ ':
 lab_registry_ca: "{{ lookup('ansible.builtin.file', lab_secrets_dir ~ '/lab-ca.crt', errors='ignore') | default('', true) }}"
 
 lab_admin_pubkey: "{{ lookup('ansible.builtin.file', lab_secrets_dir ~ '/id_ed25519.pub', errors='ignore') | default('', true) }}"
+# FIPS-mode (STIG) hosts refuse Ed25519 keys, so the lab clients also get an
+# ECDSA P-384 key, and Ansible uses it for them (hosts.yml)
+lab_admin_pubkey_fips: "{{ lookup('ansible.builtin.file', lab_secrets_dir ~ '/id_ecdsa.pub', errors='ignore') | default('', true) }}"
 # Console/GDM password for labadmin on lab clients (printed by lab_site.yml)
 lab_admin_password: "{{ lookup('ansible.builtin.password', lab_secrets_dir ~ '/labadmin-password', length=16, chars=['ascii_letters', 'digits']) }}"
 lab_admin_password_salt: "{{ lookup('ansible.builtin.password', lab_secrets_dir ~ '/labadmin-salt', length=16, chars=['ascii_letters', 'digits']) }}"
@@ -53,7 +56,52 @@ lab_repo_packages:
   - gnome-system-monitor
   - xdg-user-dirs-gtk
   - firefox
+  # STIG layer (images/stig/): OpenSCAP itself, then the packages the DISA STIG
+  # profile installs (package_*_installed rules in compliance/stig/ssg/*.json).
+  - openscap-utils
+  - openscap-scanner
+  - scap-security-guide
+  - aide
+  - audispd-plugins
+  - audit
+  - cronie
+  - fapolicyd
+  - firewalld
+  - gnutls-utils
+  - libreswan
+  - nss-tools
+  - opensc
+  - pcsc-lite
+  - pcsc-lite-ccid
+  - policycoreutils-python-utils
+  - postfix
+  - rsyslog
+  - rsyslog-gnutls
+  - s-nail
+  - subscription-manager
+  - libdnf-plugin-subscription-manager
+  - usbguard
+  # Trade-study spike only (images/stig-lockdown/): the Lockdown role runs in the build
+  - ansible-core
 
 lab_iso_url: https://repo.almalinux.org/almalinux/10/isos/x86_64/AlmaLinux-10.2-x86_64-boot.iso
 lab_iso_checksum: sha256:b3f865468075bcada8f208d830289302c67529789d668041d24e8d6fc697ba6a
 lab_iso_path: /srv/iso/AlmaLinux-10.2-x86_64-boot.iso
+
+# STIG comparison host (lab_rpm_host.yml): the full DVD, loop-mounted under the
+# PXE web root as the BaseOS/AppStream repo, the way legacy PXE estates do it.
+lab_dvd_url: https://repo.almalinux.org/almalinux/10.2/isos/x86_64/AlmaLinux-10.2-x86_64-dvd.iso
+lab_dvd_checksum: sha256:90244ac532f67c978831a381b420da8bda363729e1f4cf8fb8991daca70ee287
+lab_dvd_path: /srv/iso/AlmaLinux-10.2-x86_64-dvd.iso
+lab_dvd_repo_url: http://{{ lab_pxe_ip }}/bootc/repos/almalinux-10.2-dvd
+
+# Second STIG scanner (lab_stig_scan.yml): the Ansible Lockdown audit, the
+# site's current tool. Goss runs on each host, so it's OFF until approved:
+#   -e lab_lockdown_audit=true
+# Pinned: the Goss build Lockdown's RHEL10-STIG role uses (defaults/main/audit.yml),
+# and the RHEL10-STIG-Audit "latest" branch at a fixed commit.
+lab_lockdown_audit: false
+lab_goss_url: https://github.com/krameff/goss/releases/download/v0.5.0/goss-linux-amd64
+lab_goss_checksum: sha256:1371df12806586e4c6b122a22e1dbc2b9008160099eaf2816d139cc825ffc40a
+lab_lockdown_audit_commit: cf850a0c2c89a81b9ae9cf19db660538320e3e36
+lab_lockdown_audit_url: https://codeload.github.com/ansible-lockdown/RHEL10-STIG-Audit/tar.gz/{{ lab_lockdown_audit_commit }}

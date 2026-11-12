@@ -1,8 +1,10 @@
 {% set host = item.1 %}
 {% set state = host.state | default('install') %}
 {% import '_kernel.j2' as k with context %}
+{% set ks = host.ks_url | default(bootc_pxe_http_url ~ '/ks/hosts/' ~ host.name ~ '.ks') %}
+{% set what = ('bootc ' ~ host.profile) if host.ks_url is not defined else 'its own Kickstart' %}
 # Managed by Ansible (role bootc_pxe). Do not edit on the server.
-# Host {{ host.name }} ({{ host.mac | lower }}): profile {{ host.profile }}, state {{ state }}
+# Host {{ host.name }} ({{ host.mac | lower }}): {{ what }}, state {{ state }}
 #   install   = install only if no local disk has a UEFI boot loader yet (safe with
 #               network-first boot order: an installed host boots its disk)
 #   reinstall = always install (wipes the disk on every network boot; set back afterwards)
@@ -20,9 +22,9 @@ if search --no-floppy --file --set=bootc_existing_os /EFI/BOOT/BOOTX64.EFI; then
 fi
 {% endif %}
 
-menuentry 'Install {{ host.name }} as bootc {{ host.profile }} - ERASES {{ host.disk | default("ALL DISKS") }}' --id install {
+menuentry 'Install {{ host.name }} as {{ what }} - ERASES {{ host.disk | default("ALL DISKS") }}' --id install {
   echo 'Zero-touch install of {{ host.name }}...'
-  linux {{ k.kpath }}/vmlinuz {{ k.kargs }} inst.ks={{ bootc_pxe_http_url }}/ks/hosts/{{ host.name }}.ks
+  linux {{ k.kpath }}/vmlinuz {{ k.kargs }}{{ k.fips(host.profile) if host.profile is defined else '' }}{{ (' ' ~ host.kernel_args) if host.kernel_args is defined else '' }} inst.ks={{ ks }}
   initrd {{ k.kpath }}/initrd.img
 }
 

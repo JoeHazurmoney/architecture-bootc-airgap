@@ -29,13 +29,19 @@ Patches come from three places:
 `image_patch.yml` (role `bootc_image_build`, `bootc_build_action: build`):
 
 1. pulls the base image from the mirror and records its digest
-2. builds **server**, then **workstation** on top of the new server image
+2. builds **server**, then **workstation** on top of the new server image, then
+   the STIG-hardened **server-stig** and **workstation-stig** (the STIG layer goes
+   last; see [stig/how-it-works.md](stig/how-it-works.md))
 3. each build ends with `bootc container lint`
 4. diffs the RPMs against the current `:testing` image and writes
    `/var/lib/bootc-build/reports/<version>-<profile>-rpm-diff.txt`
    (`+` added, `-` removed, `~` changed)
 5. pushes the immutable tag `:<release>-<YYYYMMDD>.<HHMM>`
 6. moves `:testing` to that digest (registry-side copy, digest preserved)
+
+For STIG hosts, scan the new `:testing` images before promoting:
+`lab/playbooks/lab_stig_scan.yml --tags images -e stig_scan_tag=testing` in the
+lab, or your Lightspeed/Satellite compliance policy in production.
 
 Test it: point a few canary hosts at `:testing` (`day2_switch.yml -e
 bootc_lifecycle_switch_ref=<registry>/bootc/server:testing`), or build a

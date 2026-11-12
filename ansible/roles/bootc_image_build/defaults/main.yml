@@ -13,6 +13,9 @@ bootc_build_registry: registry.example.internal:5000
 bootc_build_release: "10.2"
 # Leave empty to generate <release>-<YYYYMMDD>.<HHMM> (UTC)
 bootc_build_version: ""
+# Built in this order; from_profile builds on the image just built.
+# build_args (optional) add or override --build-arg values for one profile.
+# The -stig profiles add the STIG hardening layer last (docs/stig/).
 bootc_build_profiles:
   - name: server
     repository: bootc/server
@@ -21,6 +24,16 @@ bootc_build_profiles:
     repository: bootc/workstation
     containerfile: workstation/Containerfile
     from_profile: server
+  - name: server-stig
+    repository: bootc/server-stig
+    containerfile: stig/Containerfile
+    from_profile: server
+    build_args: {STIG_PROFILE: stig}
+  - name: workstation-stig
+    repository: bootc/workstation-stig
+    containerfile: stig/Containerfile
+    from_profile: workstation
+    build_args: {STIG_PROFILE: stig_gui}
 # Extra --build-arg values for every image, e.g. {APPLY_UPDATES: "true", NTP_SERVERS: "ntp1 ntp2"}
 bootc_build_args: {}
 # PEM text baked into the image's trust store (the internal registry CA)

@@ -1,0 +1,17 @@
+---
+# Ansible Lockdown RHEL10-STIG 1.2.0: controls that FAIL when the role runs in
+# a container build, beyond the ones its own vars/is_container.yml already
+# skips. Found by running the role in a throwaway container from the server
+# image (2026-11-11). Each one is met another way or stays open (finding map).
+rhel10stig_disruption_high: true
+rhel10stig_700960: false  # Ctrl-Alt-Del burst: `systemctl disable` -> "Service is in unknown state"
+rhel10stig_200721: false  # sshd service must be enabled/running: no systemd in the build
+rhel10stig_400165: false  # audit log group ownership: /var/log/audit/audit.log doesn't exist in an image
+rhel10stig_400190: false  # audit log directory mode: same (audit.log is created on the host)
+rhel10stig_500000: false  # systemd-journald enabled: systemd module -> "Service is in unknown state" in podman build
+# The rest of the role's controls that use Ansible's systemd module (16 in all;
+# its own is_container.yml skips 10). That module can't manage units in a
+# `podman build`, so these must be met with `systemctl enable/mask` instead.
+rhel10stig_200611: false
+rhel10stig_700970: false  # debug-shell disabled
+rhel10stig_800310: false

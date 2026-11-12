@@ -8,6 +8,11 @@ Type=oneshot
 # RemainAfterExit lets Ansible tell "not run yet" (inactive) from
 # "passed" (active) and "failed" (failed).
 RemainAfterExit=yes
+# From a service, bootc re-executes a copy of itself (SELinux install_t) from
+# $TMPDIR. STIG hosts mount /tmp noexec, which breaks that ("execve: Permission
+# denied"), so use a private runtime dir on /run (exec allowed).
+RuntimeDirectory=bootc-health
+Environment=TMPDIR=/run/bootc-health
 ExecStart=/usr/libexec/bootc-health-check
 TimeoutStartSec=15min
 

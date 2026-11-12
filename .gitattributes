@@ -4,3 +4,5 @@
 *.iso binary
 *.qcow2 binary
 *.vhdx binary
+# Vendored DISA content: keep it byte-for-byte (its sha256 is recorded)
+compliance/stig/disa/*.xml -text

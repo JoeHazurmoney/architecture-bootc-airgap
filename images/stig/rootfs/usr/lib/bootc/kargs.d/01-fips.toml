@@ -1,0 +1,4 @@
+# RHEL-10-000500 (V-281009, CAT I): RHEL 10 must enable FIPS mode.
+# bootc adds this kernel argument at install and keeps it on every upgrade.
+# The FIPS crypto policy (RHEL-10-300010) is set by OpenSCAP in the same build.
+kargs = ["fips=1"]

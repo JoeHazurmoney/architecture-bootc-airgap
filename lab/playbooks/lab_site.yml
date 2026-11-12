@@ -76,6 +76,10 @@
   vars:
     sd: "{{ lab_secrets_dir }}"
   handlers:
+    - name: Restart chronyd
+      ansible.builtin.systemd_service:
+        name: chronyd
+        state: restarted
     - name: Update CA trust
       ansible.builtin.command: update-ca-trust
       changed_when: true
@@ -155,6 +159,26 @@
     - name: Open the registry port on the lab side
       ansible.posix.firewalld:
         port: 5000/tcp
+        zone: internal
+        permanent: true
+        immediate: true
+        state: enabled
+
+    # The lab's time server (STIG RHEL-10-800040: clients use an authoritative
+    # source; the images get NTP_SERVERS=lab_pxe_ip). local stratum keeps it
+    # serving while the airgap is on.
+    - name: Let chrony serve time to the lab network
+      ansible.builtin.blockinfile:
+        path: /etc/chrony.conf
+        marker: "# {mark} bootc lab (lab_site.yml)"
+        block: |
+          allow {{ lab_net_cidr }}
+          local stratum 10
+      notify: Restart chronyd
+
+    - name: Open NTP on the lab side
+      ansible.posix.firewalld:
+        service: ntp
         zone: internal
         permanent: true
         immediate: true
@@ -303,19 +327,24 @@
               lab_registry ~ '/mirror/almalinux-bootc:' ~ item,
               'dnf', '-y', '-q', 'install', '--downloadonly', '--destdir', '/out']
              + lab_repo_packages }}
-        creates: /srv/lab-repo/.done-{{ item }}
+        creates: /srv/lab-repo/.done-{{ item }}-{{ __pkgs_hash }}
       environment:
         REGISTRY_AUTH_FILE: /etc/bootc-build/auth.json
       loop: ["{{ lab_base_old }}", "{{ lab_base_new }}"]
+      vars:
+        __pkgs_hash: "{{ lab_repo_packages | join(' ') | hash('sha1') | truncate(12, end='') }}"
 
+    # The marker names the package list's hash, so adding packages re-downloads
     - name: Mark downloads done
       ansible.builtin.file:
-        path: /srv/lab-repo/.done-{{ item }}
+        path: /srv/lab-repo/.done-{{ item }}-{{ __pkgs_hash }}
         state: touch
         mode: "0644"
         modification_time: preserve
         access_time: preserve
       loop: ["{{ lab_base_old }}", "{{ lab_base_new }}"]
+      vars:
+        __pkgs_hash: "{{ lab_repo_packages | join(' ') | hash('sha1') | truncate(12, end='') }}"
 
     - name: Install createrepo_c
       ansible.builtin.dnf:

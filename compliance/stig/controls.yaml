@@ -1,0 +1,249 @@
+---
+# STIG decisions for this repo. THE one file a reviewer (ISSO) needs to read.
+#
+# Every DISA finding gets a row in docs/stig/finding-map.md. By default a
+# finding is met by "image-openscap": Red Hat's STIG content applied with
+# oscap-im when the image is built. Only findings met some OTHER way, or not
+# met, are listed here, keyed by DISA STIG ID, each with a plain-language note.
+#
+# Change this file only by pull request: the PR history is the audit trail.
+# After editing, run `make stig` (regenerates images/stig/tailoring.xml, the
+# finding map and the checklists) and commit the result. CI fails otherwise.
+#
+# Per-finding keys:
+#   disposition: image-openscap | image-file | install-kickstart | install-bib |
+#                site-config | exception | not-applicable | manual-procedural
+#   note:        why / what, in plain words (required for exception,
+#                not-applicable, site-config)
+#   where:       repo paths that implement it
+#   deselect:    SSG rules to switch off in the tailoring (must belong to this finding)
+#   values:      SSG variables to change in the tailoring, {var_name: value}
+#   profiles:    which images this applies to (default: all)
+#   approval:    for exceptions: "proposed" until the ISSO signs off, then e.g.
+#                "approved 2026-12-01 (ticket ABC-123)"
+
+disa:
+  xccdf: compliance/stig/disa/U_RHEL_10_STIG_V1R2_Manual-xccdf.xml
+  # sha256 of the DISA download U_RHEL_10_V1R2_STIG.zip (the XML above is extracted from it)
+  zip_sha256: d050b93c00d3c2cf8b0adec4a852f27bd827720cc4510ce32f3368006ad63ac3
+  url: https://dl.dod.cyber.mil/wp-content/uploads/stigs/zip/U_RHEL_10_V1R2_STIG.zip
+
+ssg:
+  # Refresh with: tools/stig_report.py extract-ssg <ssg-…-ds.xml> after an SSG update
+  map: compliance/stig/ssg/almalinux10.json
+
+# Bumped by hand when the tailoring changes (goes into tailoring.xml)
+tailoring_version: "2026-11-11"
+
+profiles:
+  server:
+    base: stig
+    title: DISA STIG for RHEL 10 (bootc server, site tailoring)
+  workstation:
+    base: stig_gui
+    title: DISA STIG with GUI for RHEL 10 (bootc workstation, site tailoring)
+
+# What gets scanned. Results land in compliance/stig/results/<name>.json
+# (lab/playbooks/lab_stig_scan.yml) and appear as columns in the finding map.
+targets:
+  - name: server-base-image
+    short: Base img
+    label: Server image, not hardened
+    description: the plain bootc server image, before the STIG layer (the starting point)
+    profile: server
+    role: Member Server
+  - name: server-image
+    short: Srv img
+    label: Server image, hardened
+    description: the server-stig image, scanned in the registry before any host runs it
+    profile: server
+    role: Member Server
+  - name: server-host
+    short: Srv host
+    label: bootc server (srv01)
+    description: a running server installed over PXE from the server-stig image
+    profile: server
+    role: Member Server
+    host_name: bootc-lab-srv01
+    ip: 10.77.0.101
+  - name: workstation-image
+    short: WS img
+    label: Workstation image, hardened
+    description: the workstation-stig image, scanned in the registry
+    profile: workstation
+    role: Workstation
+  - name: workstation-host
+    short: WS host
+    label: bootc workstation (ws01)
+    description: a running GNOME workstation installed over PXE from the workstation-stig image
+    profile: workstation
+    role: Workstation
+    host_name: bootc-lab-ws01
+    ip: 10.77.0.102
+  - name: rpm-host
+    short: RPM host
+    label: Traditional RPM server (rpm01)
+    description: the comparison host, installed the way RHEL 8 is today (RPM Kickstart, then the Ansible Lockdown STIG role)
+    profile: server
+    role: Member Server
+    host_name: bootc-lab-rpm01
+    ip: 10.77.0.103
+
+findings:
+  # ---- Crypto -------------------------------------------------------------
+  RHEL-10-000500:
+    disposition: image-file
+    note: >-
+      FIPS mode is a kernel argument shipped in the image (bootc applies it on
+      install and on every upgrade). OpenSCAP sets the FIPS crypto policy in the
+      same build. The PXE installer also boots with fips=1 so keys made at
+      install time are FIPS-generated. In the lab (AlmaLinux) the crypto modules
+      are not FIPS-validated; on RHEL they are.
+    where:
+      - images/stig/rootfs/usr/lib/bootc/kargs.d/01-fips.toml
+      - ansible/roles/bootc_pxe/templates/_kernel.j2
+
+  RHEL-10-000510:
+    disposition: exception
+    approval: proposed
+    note: >-
+      Disk encryption needs an unattended unlock for zero-touch installs and
+      reboots after upgrades. Production plan: LUKS2 in the Kickstart, bound to
+      the TPM2 chip (Clevis) or to Tang servers on the management network. The
+      Hyper-V lab clients have no virtual TPM, so the lab does not encrypt.
+
+  # ---- Disk layout (only the installer can do this) -------------------------
+  RHEL-10-000520:
+    disposition: install-kickstart
+    note: /var/log/audit is its own logical volume in the STIG disk layout.
+    where: [ansible/roles/bootc_pxe/defaults/main.yml, lab/inventory/group_vars/pxe_servers.yml]
+  RHEL-10-000530:
+    disposition: install-kickstart
+    note: In image mode /home is a link to /var/home, so /var/home is the separate volume.
+    where: [ansible/roles/bootc_pxe/defaults/main.yml, lab/inventory/group_vars/pxe_servers.yml]
+  RHEL-10-000540:
+    disposition: install-kickstart
+    note: /tmp is its own volume in the STIG disk layout.
+    where: [ansible/roles/bootc_pxe/defaults/main.yml, lab/inventory/group_vars/pxe_servers.yml]
+  RHEL-10-000550:
+    disposition: install-kickstart
+    note: /var is its own volume. In image mode /var is the only place that keeps host data.
+    where: [ansible/roles/bootc_pxe/defaults/main.yml, lab/inventory/group_vars/pxe_servers.yml]
+  RHEL-10-000560:
+    disposition: install-kickstart
+    note: /var/log is its own volume in the STIG disk layout.
+    where: [ansible/roles/bootc_pxe/defaults/main.yml, lab/inventory/group_vars/pxe_servers.yml]
+  RHEL-10-000570:
+    disposition: install-kickstart
+    note: /var/tmp is its own volume in the STIG disk layout.
+    where: [ansible/roles/bootc_pxe/defaults/main.yml, lab/inventory/group_vars/pxe_servers.yml]
+
+  # ---- Devices --------------------------------------------------------------
+  RHEL-10-200562:
+    disposition: image-file
+    approval: proposed
+    note: >-
+      USBGuard needs a policy that lists allowed devices. Generating one at
+      build time would see no devices and block every USB keyboard on physical
+      hosts, so the image ships a written policy that allows hubs and
+      keyboards/mice (HID) only. Mass storage stays blocked. The ISSO should
+      confirm this device list for the site.
+    where: [images/stig/rootfs/etc/usbguard/rules.conf]
+
+  # ---- Values only the site can provide ------------------------------------
+  RHEL-10-800040:
+    disposition: site-config
+    note: >-
+      chrony must point at the site's authoritative time servers. Set the
+      NTP_SERVERS build argument (bootc_build_args); the lab uses the PXE VM.
+    where: [images/base/Containerfile, lab/inventory/group_vars/bootc_build.yml]
+  RHEL-10-800060:
+    disposition: site-config
+    note: >-
+      Two or more DNS servers must be configured. They come from the site's
+      DHCP, not the image. The isolated lab network has one, so this stays open
+      in the lab.
+  RHEL-10-701280:
+    disposition: site-config
+    note: >-
+      Smart card (CAC/PIV) certificate mapping rules name the site's identity
+      provider and CAs, so they belong with identity management (IdM/SSSD
+      config for the site), not in a generic image.
+  RHEL-10-700410:
+    disposition: site-config
+    note: >-
+      sudo rules must switch admins into the SELinux sysadm role. Which accounts
+      get which role is site account policy; in production that comes from IdM.
+      The lab admin account is created by the Kickstart without it.
+
+  # ---- Learned from the first scans (2026-11-12) ----------------------------
+  RHEL-10-600450:
+    disposition: site-config
+    approval: proposed
+    note: >-
+      Only approved local accounts may exist. The DISA list is extended with the
+      site admin account (labadmin in the lab), and with the system accounts the
+      image-mode base image ships in its read-only system account list
+      (/usr/lib/passwd: ceph, kube, etcd, dockerroot, rpc, rpcuser, unbound,
+      dhcpcd, systemd-*, wsdd, gnome-remote-desktop...). They have no password
+      and no login shell. The ISSO should confirm this list.
+    values:
+      var_accounts_authorized_local_users_regex: >-
+        ^(root|bin|daemon|adm|lp|sync|shutdown|halt|mail|operator|games|ftp|nobody|tss|systemd-coredump|dbus|polkitd|avahi|colord|rtkit|pipewire|clevis|sssd|geoclue|flatpak|setroubleshoot|fapolicyd|libstoragemgmt|systemd-oom|gdm|cockpit-ws|gnome-initial-setup|sshd|chrony|dnsmasq|postfix|tcpdump|admin|labadmin|unbound|dhcpcd|rpc|rpcuser|nfsnobody|avahi-autoipd|systemd-bus-proxy|systemd-resolve|systemd-network|systemd-timesync|ceph|kube|dockerroot|etcd|wsdd|gnome-remote-desktop)$
+  RHEL-10-600000:
+    disposition: install-kickstart
+    note: >-
+      Boot loader password. Image mode's boot loader config (managed by
+      bootupd) reads /boot/grub2/user.cfg, which the Kickstart writes from
+      bootc_pxe_grub_password_hash.
+    where: [ansible/roles/bootc_pxe/templates/kickstart.ks.j2]
+  RHEL-10-600010:
+    disposition: exception
+    approval: proposed
+    note: >-
+      The boot loader superuser must not be named "root". In image mode the boot
+      loader config is owned by bootupd and names the superuser "root"; changing
+      it would mean patching a file bootupd replaces. The password itself is set
+      (RHEL-10-600000), and Secure Boot is on.
+  RHEL-10-200630:
+    disposition: image-file
+    note: >-
+      AIDE is installed by the image build. Its baseline database is created on
+      each host's first boot (an image's /var isn't copied at install). After an
+      approved upgrade, re-baseline, because AIDE sees the new image as changed.
+    where: [images/stig/rootfs/usr/lib/systemd/system/bootc-aide-init.service]
+  RHEL-10-400235:
+    disposition: install-kickstart
+    note: The admin account is made by the Kickstart, so the Kickstart also sets its start-up files to 0740.
+    where: [ansible/roles/bootc_pxe/templates/kickstart.ks.j2]
+  RHEL-10-200730:
+    note: >-
+      AlmaLinux lab gap: the smart card package openssl-pkcs11 doesn't exist in
+      AlmaLinux 10, so this stays open in the lab. On RHEL the image build installs it.
+  RHEL-10-701260:
+    disposition: manual-procedural
+    note: >-
+      The automated check fails on every system scanned, the traditional RPM host
+      included, although rescue mode does require the root password
+      (systemd-sulogin-shell). Verified by hand; the check doesn't match RHEL 10's unit.
+  RHEL-10-701240:
+    disposition: manual-procedural
+    note: Whether private SSH keys have passphrases can't be checked automatically; it's a user procedure.
+  RHEL-10-300090:
+    disposition: manual-procedural
+    note: >-
+      The automated check is a script (SCE) that AlmaLinux's scap-security-guide
+      package doesn't ship, so the scanner reports an error. Manual check:
+      every file in /etc/crypto-policies/back-ends/ is a symlink into
+      /usr/share/crypto-policies/FIPS/. On a bootc host /usr is read-only, so only /etc can drift.
+  RHEL-10-700430:
+    disposition: image-file
+    note: >-
+      The build adds the SELinux label rule for the faillock directory; a
+      tmpfiles.d entry creates and relabels the directory on boot, because pam
+      makes it at runtime before the rule applies.
+    where: [images/stig/rootfs/usr/lib/tmpfiles.d/50-stig-faillock.conf]
+  RHEL-10-500025:
+    disposition: image-file
+    note: OpenSCAP writes the audit rules; the build also sets the audit package's own audit.rules to 0600.
+    where: [images/stig/Containerfile]

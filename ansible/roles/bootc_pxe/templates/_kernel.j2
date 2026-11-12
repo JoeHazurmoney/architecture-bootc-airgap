@@ -5,3 +5,8 @@
 {%- set kpath = '(tftp,' ~ bootc_pxe_server_ip ~ ')/' ~ bootc_pxe_tftp_subdir ~ '/installer/' ~ bootc_pxe_installer_release -%}
 {%- endif -%}
 {%- set kargs = 'ip=dhcp inst.stage2=' ~ __bootc_pxe_installer_url ~ ((' ' ~ bootc_pxe_kernel_args) if bootc_pxe_kernel_args else '') -%}
+{#- STIG RHEL-10-000500: the installer runs in FIPS mode for FIPS images, so keys made at install are FIPS-generated -#}
+{%- macro fips(profile) -%}
+{%- set img = bootc_pxe_images[profile] -%}
+{{ ' fips=1' if img.fips | default(img.stig | default(false)) else '' }}
+{%- endmacro -%}

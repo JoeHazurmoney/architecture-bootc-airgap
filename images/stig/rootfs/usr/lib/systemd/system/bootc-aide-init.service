@@ -1,0 +1,19 @@
+# RHEL-10-200630 (V-280977): AIDE needs a baseline database on the host.
+# In image mode, /var content from the image isn't copied at install, so the
+# baseline is made on the host's first boot (and again if it's ever removed).
+# After a `bootc upgrade`, AIDE reports the new image's /usr files as changed;
+# re-baseline with this unit once the upgrade is approved (docs/stig/how-it-works.md).
+[Unit]
+Description=Create the AIDE baseline database (STIG RHEL-10-200630)
+ConditionPathExists=!/var/lib/aide/aide.db.gz
+After=local-fs.target
+
+[Service]
+Type=oneshot
+Nice=19
+IOSchedulingClass=idle
+ExecStart=/usr/sbin/aide --init
+ExecStartPost=/usr/bin/mv -f /var/lib/aide/aide.db.new.gz /var/lib/aide/aide.db.gz
+
+[Install]
+WantedBy=multi-user.target
