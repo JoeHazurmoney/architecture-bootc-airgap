@@ -41,6 +41,11 @@
         csr_content: "{{ __ca_csr.csr }}"
         privatekey_path: "{{ sd }}/lab-ca.key"
         provider: selfsigned
+        # Back-dated: Hyper-V gives guests a hardware clock in host local time,
+        # and the installer reads it as UTC with nothing syncing it before the
+        # image pull. West of UTC, a just-made certificate is "not yet valid"
+        # to the installer (x509 error in Anaconda). 2 days covers any offset.
+        selfsigned_not_before: "-2d"
         selfsigned_not_after: "+3650d"
         mode: "0644"
 
@@ -67,6 +72,7 @@
         provider: ownca
         ownca_path: "{{ sd }}/lab-ca.crt"
         ownca_privatekey_path: "{{ sd }}/lab-ca.key"
+        ownca_not_before: "-2d"   # same reason as the CA
         ownca_not_after: "+825d"
         mode: "0644"
 
@@ -206,6 +212,7 @@
         dest: /srv/registry/certs/{{ item }}
         mode: "0640"
       loop: [registry.crt, registry.key]
+      register: __registry_tls
 
     - name: Trust the lab CA on the PXE VM
       ansible.builtin.copy:
@@ -258,7 +265,8 @@
     - name: Start the registry
       ansible.builtin.systemd_service:
         name: bootc-lab-registry.service
-        state: "{{ 'restarted' if __quadlet is changed else 'started' }}"
+        # A new certificate only takes effect when the registry restarts
+        state: "{{ 'restarted' if (__quadlet is changed or __registry_tls is changed) else 'started' }}"
         daemon_reload: true
 
     - name: Flush handlers (CA trust before talking to the registry)
