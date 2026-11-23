@@ -55,6 +55,9 @@
           - "'set default=\"local\"' in ws_grub"
           - "'dhcp-host=02:00:77:00:01:01,10.77.0.101,mol-srv01' in dnsmasq"
           - "'interface=bootc0' in dnsmasq"
+          # Survives the interface appearing after dnsmasq starts (cold boot)
+          - "'bind-dynamic' in dnsmasq"
+          - "'bind-interfaces' not in dnsmasq"
           # Signed GRUB's built-in prefix is /EFI/BOOT; each grub.cfg points it at its own dir.
           - "'set prefix=\"(${root})/bootc/EFI/BOOT\"' in tftp_grub"
           - "'set prefix=\"(${root})/bootc/EFI/BOOT\"' in http_grub"

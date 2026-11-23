@@ -9,7 +9,12 @@ log-dhcp
 dhcp-no-override
 {% if bootc_pxe_dhcp_interface %}
 interface={{ bootc_pxe_dhcp_interface }}
-bind-interfaces
+# bind-dynamic, not bind-interfaces: with bind-interfaces dnsmasq refuses to
+# start if the interface doesn't exist yet ("unknown interface"), which happens
+# on a cold boot (found by the supply-chain lab's Start-Lab.ps1, 2026-11-23).
+# bind-dynamic serves the interface as soon as it appears, and still answers
+# on it only.
+bind-dynamic
 {% endif %}
 
 dhcp-match=set:efi-x64,option:client-arch,7
