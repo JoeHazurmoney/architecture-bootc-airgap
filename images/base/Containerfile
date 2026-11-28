@@ -36,6 +36,7 @@ RUN --mount=type=bind,source=repos,target=/run/extra-repos \
         linux-firmware \
         ipmitool \
         chrony \
+        firewalld \
         jq \
         ${EXTRA_PACKAGES}; \
     dnf clean all; \
@@ -62,6 +63,8 @@ RUN set -eux; \
     chmod 0755 /usr/libexec/bootc-health-check /usr/lib/bootc-health.d/*.sh; \
     systemctl enable chronyd.service bootc-health-check.service; \
     systemctl disable bootc-fetch-apply-updates.timer; \
+    # firewalld is installed but off: the image serves every consumer, and a running firewalld closes published ports until a site's playbook sets its zones
+    systemctl disable firewalld.service; \
     printf 'IMAGE_VERSION=%s\nGIT_SHA=%s\nPROFILE=server\n' "${IMAGE_VERSION}" "${GIT_SHA}" > /usr/lib/bootc-image-release
 
 LABEL org.opencontainers.image.title="bootc-server" \
